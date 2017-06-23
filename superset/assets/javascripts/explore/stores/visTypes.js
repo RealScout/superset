@@ -765,6 +765,7 @@ const visTypes = {
         label: null,
         controlSetRows: [
           ['all_columns_x', 'all_columns_y'],
+          ['all_columns_geometry', 'geometry_data_type'],
           ['clustering_radius'],
           ['row_limit'],
           ['groupby'],
@@ -810,6 +811,14 @@ const visTypes = {
       all_columns_y: {
         label: 'Latitude',
         description: 'Column containing latitude data',
+      },
+      all_columns_geometry: {
+        label: 'Geometry',
+        description: 'Column containing geometry data',
+      },
+      geometry_data_type: {
+        label: 'Geometry Data Type',
+        description: 'Format of shape data (WKT, WKB, GeoJSON)',
       },
       pandas_aggfunc: {
         label: 'Cluster label aggregator',

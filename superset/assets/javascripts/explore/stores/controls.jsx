@@ -352,6 +352,26 @@ export const controls = {
     }),
   },
 
+  all_columns_geometry: {
+    type: 'SelectControl',
+    label: 'Geometry',
+    default: null,
+    description: 'Columns to display',
+    mapStateToProps: state => ({
+      choices: (state.datasource) ? state.datasource.all_cols : [],
+    }),
+  },
+
+  geometry_data_type: {
+    type: 'SelectControl',
+    label: 'Geometry Data Type',
+    default: null,
+    description: 'Geometry Data Type (WKT, WKB, GeoJSON)',
+    mapStateToProps: state => ({
+      choices: ['WKB', 'WKT', 'GeoJSON'],
+    }),
+  },
+
   all_columns_x: {
     type: 'SelectControl',
     label: 'X',
@@ -1079,12 +1099,14 @@ export const controls = {
     type: 'SelectControl',
     label: 'Map Style',
     choices: [
-      ['mapbox://styles/mapbox/streets-v9', 'Streets'],
+      ['mapbox://styles/mapbox/streets-v10', 'Streets'],
       ['mapbox://styles/mapbox/dark-v9', 'Dark'],
       ['mapbox://styles/mapbox/light-v9', 'Light'],
-      ['mapbox://styles/mapbox/satellite-streets-v9', 'Satellite Streets'],
+      ['mapbox://styles/mapbox/satellite-streets-v10', 'Satellite Streets'],
       ['mapbox://styles/mapbox/satellite-v9', 'Satellite'],
-      ['mapbox://styles/mapbox/outdoors-v9', 'Outdoors'],
+      ['mapbox://styles/mapbox/traffic-day-v2', 'Traffic (day)'],
+      ['mapbox://styles/mapbox/traffic-night-v2', 'Traffic (night)'],
+      ['mapbox://styles/mapbox/outdoors-v10', 'Outdoors'],
     ],
     default: 'mapbox://styles/mapbox/streets-v9',
     description: 'Base layer map style',
