@@ -34,16 +34,17 @@ class App extends React.PureComponent {
   }
   getHeight() {
     const warningEl = $('#navbar-warning');
-    const navTabsEl = $('.nav-tabs');
+    const tabsEl = $('.nav-tabs');
     const searchHeaderEl = $('#search-header');
     const alertEl = $('#sqllab-alerts');
-    const headerNavEl = $('header .navbar');
-    const navHeight = headerNavEl.outerHeight() + parseInt(headerNavEl.css('marginBottom'), 10);
-    const searchHeaderHeight = searchHeaderEl.outerHeight() + parseInt(searchHeaderEl.css('marginBottom'), 10);
-    const headerHeight = navTabsEl.outerHeight() ? navTabsEl.outerHeight() : searchHeaderHeight;
+    const headerEl = $('header .navbar');
+    const headerHeight = headerEl.outerHeight() + parseInt(headerEl.css('marginBottom'), 10);
+    const searchHeaderHeight = searchHeaderEl.length > 0 ?
+      searchHeaderEl.outerHeight() + parseInt(searchHeaderEl.css('marginBottom'), 10) : 0;
+    const tabsHeight = tabsEl.length > 0 ? tabsEl.outerHeight() : searchHeaderHeight;
     const warningHeight = warningEl.length > 0 ? warningEl.outerHeight() : 0;
     const alertHeight = alertEl.length > 0 ? alertEl.outerHeight() : 0;
-    return `${window.innerHeight - navHeight - headerHeight - warningHeight - alertHeight}px`;
+    return `${window.innerHeight - headerHeight - tabsHeight - warningHeight - alertHeight}px`;
   }
   handleResize() {
     this.setState({ contentHeight: this.getHeight() });
@@ -64,13 +65,13 @@ class App extends React.PureComponent {
       content = (
         <div>
           <QueryAutoRefresh />
-          <TabbedSqlEditors editorHeight={this.state.contentHeight} />
+          <TabbedSqlEditors getHeight={this.getHeight} />
         </div>
       );
     }
     return (
       <div className="App SqlLab">
-        <AlertsWrapper />
+        <AlertsWrapper initMessages={this.props.initMessages} />
         <div className="container-fluid">
           {content}
         </div>
@@ -82,11 +83,13 @@ class App extends React.PureComponent {
 App.propTypes = {
   alerts: PropTypes.array,
   actions: PropTypes.object,
+  initMessages: PropTypes.array,
 };
 
 function mapStateToProps(state) {
   return {
     alerts: state.alerts,
+    initMessages: state.flash_messages,
   };
 }
 function mapDispatchToProps(dispatch) {

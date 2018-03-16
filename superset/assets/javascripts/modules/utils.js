@@ -4,6 +4,17 @@ import $ from 'jquery';
 
 import { formatDate, UTC } from './dates';
 
+const siFormatter = d3.format('.3s');
+
+export function defaultNumberFormatter(n) {
+  let si = siFormatter(n);
+  // Removing trailing `.00` if any
+  if (si.slice(-1) < 'A') {
+    si = parseFloat(si).toString();
+  }
+  return si;
+}
+
 export function d3FormatPreset(format) {
   // like d3.format, but with support for presets like 'smart_date'
   if (format === 'smart_date') {
@@ -12,13 +23,14 @@ export function d3FormatPreset(format) {
   if (format) {
     return d3.format(format);
   }
-  return d3.format('.3s');
+  return defaultNumberFormatter;
 }
 export const d3TimeFormatPreset = function (format) {
-  if (format === 'smart_date') {
+  const effFormat = format || 'smart_date';
+  if (effFormat === 'smart_date') {
     return formatDate;
   }
-  const f = d3.time.format(format);
+  const f = d3.time.format(effFormat);
   return function (dttm) {
     const d = UTC(new Date(dttm));
     return f(d);
@@ -122,7 +134,11 @@ export function toggleCheckbox(apiUrlPrefix, selector) {
  */
 export const fixDataTableBodyHeight = function ($tableDom, height) {
   const headHeight = $tableDom.find('.dataTables_scrollHead').height();
-  $tableDom.find('.dataTables_scrollBody').css('max-height', height - headHeight);
+  const filterHeight = $tableDom.find('.dataTables_filter').height() || 0;
+  const pageLengthHeight = $tableDom.find('.dataTables_length').height() || 0;
+  const paginationHeight = $tableDom.find('.dataTables_paginate').height() || 0;
+  const controlsHeight = (pageLengthHeight > filterHeight) ? pageLengthHeight : filterHeight;
+  $tableDom.find('.dataTables_scrollBody').css('max-height', height - headHeight - controlsHeight - paginationHeight);
 };
 
 export function d3format(format, number) {
@@ -228,14 +244,18 @@ export function initJQueryAjax() {
 }
 
 export function tryNumify(s) {
-  // Attempts casting to float, returns string when failing
-  try {
-    const parsed = parseFloat(s);
-    if (parsed) {
-      return parsed;
-    }
-  } catch (e) {
-    // pass
+  // Attempts casting to Number, returns string when failing
+  const n = Number(s);
+  if (isNaN(n)) {
+    return s;
   }
-  return s;
+  return n;
+}
+
+export function getParam(name) {
+  /* eslint no-useless-escape: 0 */
+  const formattedName = name.replace(/[\[]/, '\\[').replace(/[\]]/, '\\]');
+  const regex = new RegExp('[\\?&]' + formattedName + '=([^&#]*)');
+  const results = regex.exec(location.search);
+  return results === null ? '' : decodeURIComponent(results[1].replace(/\+/g, ' '));
 }

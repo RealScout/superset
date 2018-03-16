@@ -3,20 +3,26 @@ import $ from 'jquery';
 import throttle from 'lodash.throttle';
 import d3 from 'd3';
 import nv from 'nvd3';
+import mathjs from 'mathjs';
+import moment from 'moment';
+import d3tip from 'd3-tip';
 
-import { category21 } from '../javascripts/modules/colors';
+import { getColorFromScheme } from '../javascripts/modules/colors';
+import AnnotationTypes, {
+  applyNativeColumns,
+} from '../javascripts/modules/AnnotationTypes';
 import { customizeToolTip, d3TimeFormatPreset, d3FormatPreset, tryNumify } from '../javascripts/modules/utils';
-
-import { D3_TIME_FORMAT_OPTIONS } from '../javascripts/explore/stores/controls';
-
 
 // CSS
 import '../node_modules/nvd3/build/nv.d3.min.css';
 import './nvd3_vis.css';
+import { VIZ_TYPES } from './main';
 
-const timeStampFormats = D3_TIME_FORMAT_OPTIONS.map(opt => opt[0]);
 const minBarWidth = 15;
+// Limit on how large axes margins can grow as the chart window is resized
+const maxMarginPad = 30;
 const animationTime = 1000;
+const minHeightForBrush = 480;
 
 const BREAKPOINTS = {
   small: 340,
@@ -42,24 +48,26 @@ const addTotalBarValues = function (svg, chart, data, stacked, axisFormat) {
         return true;
       }
       return i === countSeriesDisplayed - 1;
-    }).selectAll('rect.positive');
+    }).selectAll('rect');
 
   const groupLabels = svg.select('g.nv-barsWrap').append('g');
   rectsToBeLabeled.each(
     function (d, index) {
       const rectObj = d3.select(this);
-      const transformAttr = rectObj.attr('transform');
-      const yPos = parseFloat(rectObj.attr('y'));
-      const xPos = parseFloat(rectObj.attr('x'));
-      const rectWidth = parseFloat(rectObj.attr('width'));
-      const t = groupLabels.append('text')
-        .attr('x', xPos) // rough position first, fine tune later
-        .attr('y', yPos - 5)
-        .text(format(stacked ? totalStackedValues[index] : d.y))
-        .attr('transform', transformAttr)
-        .attr('class', 'bar-chart-label');
-      const labelWidth = t.node().getBBox().width;
-      t.attr('x', xPos + rectWidth / 2 - labelWidth / 2); // fine tune
+      if (rectObj.attr('class').includes('positive')) {
+        const transformAttr = rectObj.attr('transform');
+        const yPos = parseFloat(rectObj.attr('y'));
+        const xPos = parseFloat(rectObj.attr('x'));
+        const rectWidth = parseFloat(rectObj.attr('width'));
+        const t = groupLabels.append('text')
+          .attr('x', xPos) // rough position first, fine tune later
+          .attr('y', yPos - 5)
+          .text(format(stacked ? totalStackedValues[index] : d.y))
+          .attr('transform', transformAttr)
+          .attr('class', 'bar-chart-label');
+        const labelWidth = t.node().getBBox().width;
+        t.attr('x', xPos + rectWidth / 2 - labelWidth / 2); // fine tune
+      }
     });
 };
 
@@ -75,13 +83,39 @@ function getMaxLabelSize(container, axisClass) {
   return Math.max(...labelDimensions);
 }
 
+/* eslint-disable camelcase */
+function formatLabel(column, verbose_map) {
+  let label;
+  if (Array.isArray(column) && column.length) {
+    label = verbose_map[column[0]] || column[0];
+    if (column.length > 1) {
+      label += ', ';
+    }
+    label += column.slice(1).join(', ');
+  } else {
+    label = verbose_map[column] || column;
+  }
+  return label;
+}
+/* eslint-enable camelcase */
+
 function nvd3Vis(slice, payload) {
   let chart;
   let colorKey = 'key';
   const isExplore = $('#explore-container').length === 1;
 
+  let data;
+  if (payload.data) {
+    data = payload.data.map(x => ({
+      ...x, key: formatLabel(x.key, slice.datasource.verbose_map),
+    }));
+  } else {
+    data = [];
+  }
+
   slice.container.html('');
   slice.clearError();
+
 
   // Calculates the longest label size for stretching bottom margin
   function calculateStretchMargins(payloadData) {
@@ -104,9 +138,9 @@ function nvd3Vis(slice, payload) {
   const barchartWidth = function () {
     let bars;
     if (fd.bar_stacked) {
-      bars = d3.max(payload.data, function (d) { return d.values.length; });
+      bars = d3.max(data, function (d) { return d.values.length; });
     } else {
-      bars = d3.sum(payload.data, function (d) { return d.values.length; });
+      bars = d3.sum(data, function (d) { return d.values.length; });
     }
     if (bars * minBarWidth > width) {
       return bars * minBarWidth;
@@ -125,14 +159,17 @@ function nvd3Vis(slice, payload) {
     if (svg.empty()) {
       svg = d3.select(slice.selector).append('svg');
     }
+    let height = slice.height();
     switch (vizType) {
       case 'line':
-        if (fd.show_brush) {
+        if (
+          fd.show_brush === true ||
+          fd.show_brush === 'yes' ||
+          (fd.show_brush === 'auto' && height >= minHeightForBrush)
+        ) {
           chart = nv.models.lineWithFocusChart();
           chart.focus.xScale(d3.time.scale.utc());
-          chart.x2Axis
-          .showMaxMin(fd.x_axis_showminmax)
-          .staggerLabels(false);
+          chart.x2Axis.staggerLabels(false);
         } else {
           chart = nv.models.lineChart();
         }
@@ -140,9 +177,14 @@ function nvd3Vis(slice, payload) {
         // chart.interactiveLayer.tooltip.headerFormatter(function(){return '';});
         chart.xScale(d3.time.scale.utc());
         chart.interpolate(fd.line_interpolation);
-        chart.xAxis
-        .showMaxMin(fd.x_axis_showminmax)
-        .staggerLabels(false);
+        chart.xAxis.staggerLabels(false);
+        break;
+
+      case 'time_pivot':
+        chart = nv.models.lineChart();
+        chart.xScale(d3.time.scale.utc());
+        chart.interpolate(fd.line_interpolation);
+        chart.xAxis.staggerLabels(false);
         break;
 
       case 'dual_line':
@@ -168,7 +210,7 @@ function nvd3Vis(slice, payload) {
 
         if (fd.show_bar_value) {
           setTimeout(function () {
-            addTotalBarValues(svg, chart, payload.data, stacked, fd.y_axis_format);
+            addTotalBarValues(svg, chart, data, stacked, fd.y_axis_format);
           }, animationTime);
         }
         break;
@@ -180,19 +222,18 @@ function nvd3Vis(slice, payload) {
         .rotateLabels(45)
         .groupSpacing(0.1); // Distance between each group of bars.
 
-        chart.xAxis
-        .showMaxMin(false);
+        chart.xAxis.showMaxMin(false);
 
         stacked = fd.bar_stacked;
         chart.stacked(stacked);
         if (fd.order_bars) {
-          payload.data.forEach((d) => {
+          data.forEach((d) => {
             d.values.sort((a, b) => tryNumify(a.x) < tryNumify(b.x) ? -1 : 1);
           });
         }
         if (fd.show_bar_value) {
           setTimeout(function () {
-            addTotalBarValues(svg, chart, payload.data, stacked, fd.y_axis_format);
+            addTotalBarValues(svg, chart, data, stacked, fd.y_axis_format);
           }, animationTime);
         }
         if (!reduceXTicks) {
@@ -209,14 +250,21 @@ function nvd3Vis(slice, payload) {
           chart.donut(true);
         }
         chart.labelsOutside(fd.labels_outside);
-        chart.labelThreshold(0.05)  // Configure the minimum slice size for labels to show up
-          .labelType(fd.pie_label_type);
+        chart.labelThreshold(0.05);  // Configure the minimum slice size for labels to show up
+        if (fd.pie_label_type !== 'key_percent' && fd.pie_label_type !== 'key_value') {
+          chart.labelType(fd.pie_label_type);
+        } else if (fd.pie_label_type === 'key_value') {
+          chart.labelType(d => `${d.data.x}: ${d3.format('.3s')(d.data.y)}`);
+        }
         chart.cornerRadius(true);
 
-        if (fd.pie_label_type === 'percent') {
+        if (fd.pie_label_type === 'percent' || fd.pie_label_type === 'key_percent') {
           let total = 0;
-          payload.data.forEach((d) => { total += d.y; });
+          data.forEach((d) => { total += d.y; });
           chart.tooltip.valueFormatter(d => `${((d / total) * 100).toFixed()}%`);
+          if (fd.pie_label_type === 'key_percent') {
+            chart.labelType(d => `${d.data.x}: ${((d.data.y / total) * 100).toFixed()}%`);
+          }
         }
 
         break;
@@ -255,7 +303,7 @@ function nvd3Vis(slice, payload) {
           return s;
         });
         chart.pointRange([5, fd.max_bubble_size ** 2]);
-        chart.pointDomain([0, d3.max(payload.data, d => d3.max(d.values, v => v.size))]);
+        chart.pointDomain([0, d3.max(data, d => d3.max(d.values, v => v.size))]);
         break;
 
       case 'area':
@@ -263,17 +311,13 @@ function nvd3Vis(slice, payload) {
         chart.showControls(fd.show_controls);
         chart.style(fd.stacked_style);
         chart.xScale(d3.time.scale.utc());
-        chart.xAxis
-        .showMaxMin(fd.x_axis_showminmax)
-        .staggerLabels(true);
+        chart.xAxis.staggerLabels(true);
         break;
 
       case 'box_plot':
         colorKey = 'label';
         chart = nv.models.boxPlotChart();
-        chart.x(function (d) {
-          return d.label;
-        });
+        chart.x(d => d.label);
         chart.staggerLabels(true);
         chart.maxBoxWidth(75); // prevent boxes from being incredibly wide
         break;
@@ -294,7 +338,6 @@ function nvd3Vis(slice, payload) {
       }
     }
 
-    let height = slice.height();
     if (vizType === 'bullet') {
       height = Math.min(height, 50);
     }
@@ -302,9 +345,6 @@ function nvd3Vis(slice, payload) {
     chart.height(height);
     slice.container.css('height', height + 'px');
 
-    if ((vizType === 'line' || vizType === 'area') && fd.rich_tooltip) {
-      chart.useInteractiveGuideline(true);
-    }
     if (chart.forceY &&
         fd.y_axis_bounds &&
         (fd.y_axis_bounds[0] !== null || fd.y_axis_bounds[1] !== null)) {
@@ -316,22 +356,23 @@ function nvd3Vis(slice, payload) {
     if (fd.x_log_scale) {
       chart.xScale(d3.scale.log());
     }
-
-    const isTimeSeries = timeStampFormats.indexOf(fd.x_axis_format) > -1;
+    const isTimeSeries = [
+      'line', 'dual_line', 'area', 'compare', 'bar', 'time_pivot'].indexOf(vizType) >= 0;
     // if x axis format is a date format, rotate label 90 degrees
     if (isTimeSeries) {
       chart.xAxis.rotateLabels(45);
     }
 
     let xAxisFormatter = d3FormatPreset(fd.x_axis_format);
-    if (isTimeSeries && fd.x_axis_format) {
+    if (isTimeSeries) {
       xAxisFormatter = d3TimeFormatPreset(fd.x_axis_format);
     }
     if (chart.x2Axis && chart.x2Axis.tickFormat) {
       chart.x2Axis.tickFormat(xAxisFormatter);
       height += 30;
     }
-    if (chart.xAxis && chart.xAxis.tickFormat) {
+    const isXAxisString = ['dist_bar', 'box_plot'].indexOf(vizType) >= 0;
+    if (!isXAxisString && chart.xAxis && chart.xAxis.tickFormat) {
       chart.xAxis.tickFormat(xAxisFormatter);
     }
 
@@ -343,22 +384,58 @@ function nvd3Vis(slice, payload) {
       chart.y2Axis.tickFormat(yAxisFormatter);
     }
 
-    if (vizType !== 'bullet') {
-      chart.color(d => category21(d[colorKey]));
-    }
 
-    if (fd.x_axis_label && fd.x_axis_label !== '' && chart.xAxis) {
-      let distance = 0;
-      if (fd.bottom_margin && !isNaN(fd.bottom_margin)) {
-        distance = fd.bottom_margin - 50;
+    // Set showMaxMin for all axis
+    function setAxisShowMaxMin(axis, showminmax) {
+      if (axis && axis.showMaxMin && showminmax !== undefined) {
+        axis.showMaxMin(showminmax);
       }
-      chart.xAxis.axisLabel(fd.x_axis_label).axisLabelDistance(distance);
+    }
+    setAxisShowMaxMin(chart.xAxis, fd.x_axis_showminmax);
+    setAxisShowMaxMin(chart.yAxis, fd.y_axis_showminmax);
+    setAxisShowMaxMin(chart.y2Axis, fd.y_axis_showminmax);
+
+    if (vizType === 'time_pivot') {
+      chart.color((d) => {
+        const c = fd.color_picker;
+        let alpha = 1;
+        if (d.rank > 0) {
+          alpha = d.perc * 0.5;
+        }
+        return `rgba(${c.r}, ${c.g}, ${c.b}, ${alpha})`;
+      });
+    } else if (vizType !== 'bullet') {
+      chart.color(d => d.color || getColorFromScheme(d[colorKey], fd.color_scheme));
+    }
+    if ((vizType === 'line' || vizType === 'area') && fd.rich_tooltip) {
+      chart.useInteractiveGuideline(true);
+      if (vizType === 'line') {
+        // Custom sorted tooltip
+        chart.interactiveLayer.tooltip.contentGenerator((d) => {
+          let tooltip = '';
+          tooltip += "<table><thead><tr><td colspan='3'>"
+            + `<strong class='x-value'>${xAxisFormatter(d.value)}</strong>`
+            + '</td></tr></thead><tbody>';
+          d.series.sort((a, b) => a.value >= b.value ? -1 : 1);
+          d.series.forEach((series) => {
+            tooltip += (
+              `<tr class="${series.highlight ? 'emph' : ''}">` +
+                `<td class='legend-color-guide' style="opacity: ${series.highlight ? '1' : '0.75'};"">` +
+                  '<div ' +
+                    `style="border: 2px solid ${series.highlight ? 'black' : 'transparent'}; background-color: ${series.color};"` +
+                  '></div>' +
+                '</td>' +
+                `<td>${series.key}</td>` +
+                `<td>${yAxisFormatter(series.value)}</td>` +
+              '</tr>'
+            );
+          });
+          tooltip += '</tbody></table>';
+          return tooltip;
+        });
+      }
     }
 
-    if (fd.y_axis_label && fd.y_axis_label !== '' && chart.yAxis) {
-      chart.yAxis.axisLabel(fd.y_axis_label);
-      chart.margin({ left: 90 });
-    }
 
     if (fd.bottom_margin === 'auto') {
       if (vizType === 'dist_bar') {
@@ -380,7 +457,7 @@ function nvd3Vis(slice, payload) {
       chart.showLegend(width > BREAKPOINTS.small);
     }
     svg
-    .datum(payload.data)
+    .datum(data)
     .transition().duration(500)
     .attr('height', height)
     .attr('width', width)
@@ -394,7 +471,9 @@ function nvd3Vis(slice, payload) {
 
     if (chart.yAxis !== undefined || chart.yAxis2 !== undefined) {
       // Hack to adjust y axis left margin to accommodate long numbers
-      const marginPad = isExplore ? width * 0.01 : width * 0.03;
+      const containerWidth = slice.container.width();
+      const marginPad = Math.min(isExplore ? containerWidth * 0.01 : containerWidth * 0.03,
+        maxMarginPad);
       const maxYAxisLabelWidth = chart.yAxis2 ? getMaxLabelSize(slice.container, 'nv-y1')
                                               : getMaxLabelSize(slice.container, 'nv-y');
       const maxXAxisLabelHeight = getMaxLabelSize(slice.container, 'nv-x');
@@ -420,26 +499,272 @@ function nvd3Vis(slice, payload) {
             chartMargins.right = maxYAxis2LabelWidth + marginPad;
           }
         }
-
         // apply margins
         chart.margin(chartMargins);
       }
+
       if (fd.x_axis_label && fd.x_axis_label !== '' && chart.xAxis) {
         chart.margin({ bottom: maxXAxisLabelHeight + marginPad + 25 });
+      }
+      if (fd.bottom_margin && fd.bottom_margin !== 'auto') {
+        chart.margin().bottom = fd.bottom_margin;
+      }
+      if (fd.left_margin && fd.left_margin !== 'auto') {
+        chart.margin().left = fd.left_margin;
+      }
+
+      // Axis labels
+      const margins = chart.margin();
+      if (fd.x_axis_label && fd.x_axis_label !== '' && chart.xAxis) {
+        let distance = 0;
+        if (margins.bottom && !isNaN(margins.bottom)) {
+          distance = margins.bottom - 45;
+        }
+        // nvd3 bug axisLabelDistance is disregarded on xAxis
+        // https://github.com/krispo/angular-nvd3/issues/90
+        chart.xAxis.axisLabel(fd.x_axis_label).axisLabelDistance(distance);
+      }
+
+      if (fd.y_axis_label && fd.y_axis_label !== '' && chart.yAxis) {
+        let distance = 0;
+        if (margins.left && !isNaN(margins.left)) {
+          distance = margins.left - 70;
+        }
+        chart.yAxis.axisLabel(fd.y_axis_label).axisLabelDistance(distance);
       }
 
       // render chart
       svg
-      .datum(payload.data)
+      .datum(data)
       .transition().duration(500)
       .attr('height', height)
       .attr('width', width)
       .call(chart);
+
+      // on scroll, hide tooltips. throttle to only 4x/second.
+      $(window).scroll(throttle(hideTooltips, 250));
+
+      const annotationLayers = (slice.formData.annotation_layers || []).filter(x => x.show);
+
+      if (isTimeSeries && annotationLayers) {
+        // Formula annotations
+        const formulas = annotationLayers.filter(a => a.annotationType === AnnotationTypes.FORMULA)
+          .map(a => ({ ...a, formula: mathjs.parse(a.value) }));
+
+        let xMax;
+        let xMin;
+        let xScale;
+        if (vizType === VIZ_TYPES.bar) {
+          xMin = d3.min(data[0].values, d => (d.x));
+          xMax = d3.max(data[0].values, d => (d.x));
+          xScale = d3.scale.quantile()
+            .domain([xMin, xMax])
+            .range(chart.xAxis.range());
+        } else {
+          xMin = chart.xAxis.scale().domain()[0].valueOf();
+          xMax = chart.xAxis.scale().domain()[1].valueOf();
+          xScale = chart.xScale ? chart.xScale() : d3.scale.linear();
+        }
+
+        if (Array.isArray(formulas) && formulas.length) {
+          const xValues = [];
+          if (vizType === VIZ_TYPES.bar) {
+            // For bar-charts we want one data point evaluated for every
+            // data point that will be displayed.
+            const distinct = data.reduce((xVals, d) => {
+              d.values.forEach(x => xVals.add(x.x));
+              return xVals;
+            }, new Set());
+            xValues.push(...distinct.values());
+            xValues.sort();
+          } else {
+            // For every other time visualization it should be ok, to have a
+            // data points in even intervals.
+            let period = Math.min(...data.map(d =>
+              Math.min(...d.values.slice(1).map((v, i) => v.x - d.values[i].x))));
+            const dataPoints = (xMax - xMin) / (period || 1);
+            // make sure that there are enough data points and not too many
+            period = dataPoints < 100 ? (xMax - xMin) / 100 : period;
+            period = dataPoints > 500 ? (xMax - xMin) / 500 : period;
+            xValues.push(xMin);
+            for (let x = xMin; x < xMax; x += period) {
+              xValues.push(x);
+            }
+            xValues.push(xMax);
+          }
+          const formulaData = formulas.map(fo => ({
+            key: fo.name,
+            values: xValues.map((x => ({ y: fo.formula.eval({ x }), x }))),
+            color: fo.color,
+            strokeWidth: fo.width,
+            classed: `${fo.opacity} ${fo.style}`,
+          }));
+          data.push(...formulaData);
+        }
+        const yAxis = chart.yAxis1 ? chart.yAxis1 : chart.yAxis;
+        const annotationHeight = yAxis.scale().range()[0];
+        const tipFactory = layer => d3tip()
+          .attr('class', 'd3-tip')
+          .direction('n')
+          .offset([-5, 0])
+          .html((d) => {
+            if (!d) {
+              return '';
+            }
+            const title = d[layer.titleColumn] && d[layer.titleColumn].length ?
+              d[layer.titleColumn] + ' - ' + layer.name :
+              layer.name;
+            const body = Array.isArray(layer.descriptionColumns) ?
+              layer.descriptionColumns.map(c => d[c]) : Object.values(d);
+            return '<div><strong>' + title + '</strong></div><br/>' +
+              '<div>' + body.join(', ') + '</div>';
+          });
+
+        if (slice.annotationData && Object.keys(slice.annotationData).length) {
+          // Event annotations
+          annotationLayers.filter(x => (
+            x.annotationType === AnnotationTypes.EVENT &&
+            slice.annotationData && slice.annotationData[x.name]
+          )).forEach((config, index) => {
+            const e = applyNativeColumns(config);
+            // Add event annotation layer
+            const annotations = d3.select(slice.selector).select('.nv-wrap').append('g')
+              .attr('class', `nv-event-annotation-layer-${index}`);
+            const aColor = e.color || getColorFromScheme(e.name, fd.color_scheme);
+
+            const tip = tipFactory(e);
+            const records = (slice.annotationData[e.name].records || []).map((r) => {
+              const timeValue = new Date(moment.utc(r[e.timeColumn]));
+
+              return {
+                ...r,
+                [e.timeColumn]: timeValue,
+              };
+            }).filter(record => !Number.isNaN(record[e.timeColumn].getMilliseconds()));
+
+            // account for the annotation in the x domain
+            records.forEach((record) => {
+              const timeValue = record[e.timeColumn];
+
+              xMin = Math.min(...[xMin, timeValue]);
+              xMax = Math.max(...[xMax, timeValue]);
+            });
+
+            if (records.length) {
+              const domain = [xMin, xMax];
+              xScale.domain(domain);
+              chart.xDomain(domain);
+
+              annotations.selectAll('line')
+                .data(records)
+                .enter()
+                .append('line')
+                .attr({
+                  x1: d => xScale(new Date(d[e.timeColumn])),
+                  y1: 0,
+                  x2: d => xScale(new Date(d[e.timeColumn])),
+                  y2: annotationHeight,
+                })
+                .attr('class', `${e.opacity} ${e.style}`)
+                .style('stroke', aColor)
+                .style('stroke-width', e.width)
+                .on('mouseover', tip.show)
+                .on('mouseout', tip.hide)
+                .call(tip);
+            }
+          });
+
+
+          // Interval annotations
+          annotationLayers.filter(x => (
+            x.annotationType === AnnotationTypes.INTERVAL &&
+            slice.annotationData && slice.annotationData[x.name]
+          )).forEach((config, index) => {
+            const e = applyNativeColumns(config);
+            // Add interval annotation layer
+            const annotations = d3.select(slice.selector).select('.nv-wrap').append('g')
+              .attr('class', `nv-interval-annotation-layer-${index}`);
+
+            const aColor = e.color || getColorFromScheme(e.name, fd.color_scheme);
+            const tip = tipFactory(e);
+
+            const records = (slice.annotationData[e.name].records || []).map((r) => {
+              const timeValue = new Date(moment.utc(r[e.timeColumn]));
+              const intervalEndValue = new Date(moment.utc(r[e.intervalEndColumn]));
+              return {
+                ...r,
+                [e.timeColumn]: timeValue,
+                [e.intervalEndColumn]: intervalEndValue,
+              };
+            }).filter(record => (
+              !Number.isNaN(record[e.timeColumn].getMilliseconds()) &&
+              !Number.isNaN(record[e.intervalEndColumn].getMilliseconds())
+            ));
+
+            // account for the annotation in the x domain
+            records.forEach((record) => {
+              const timeValue = record[e.timeColumn];
+              const intervalEndValue = record[e.intervalEndColumn];
+
+              xMin = Math.min(...[xMin, timeValue, intervalEndValue]);
+              xMax = Math.max(...[xMax, timeValue, intervalEndValue]);
+            });
+
+            if (records.length) {
+              const domain = [xMin, xMax];
+              xScale.domain(domain);
+              chart.xDomain(domain);
+
+              annotations.selectAll('rect')
+                .data(records)
+                .enter()
+                .append('rect')
+                .attr({
+                  x: d => Math.min(xScale(new Date(d[e.timeColumn])),
+                    xScale(new Date(d[e.intervalEndColumn]))),
+                  y: 0,
+                  width: d => Math.max(Math.abs(xScale(new Date(d[e.intervalEndColumn])) -
+                    xScale(new Date(d[e.timeColumn]))), 1),
+                  height: annotationHeight,
+                })
+                .attr('class', `${e.opacity} ${e.style}`)
+                .style('stroke-width', e.width)
+                .style('stroke', aColor)
+                .style('fill', aColor)
+                .style('fill-opacity', 0.2)
+                .on('mouseover', tip.show)
+                .on('mouseout', tip.hide)
+                .call(tip);
+            }
+          });
+
+          // Time series annotations
+          const timeSeriesAnnotations = annotationLayers
+            .filter(a => a.annotationType === AnnotationTypes.TIME_SERIES).reduce((bushel, a) =>
+              bushel.concat((slice.annotationData[a.name] || []).map((series) => {
+                if (!series) {
+                  return {};
+                }
+                const key = Array.isArray(series.key) ?
+                  `${a.name}, ${series.key.join(', ')}` : a.name;
+                return {
+                  ...series,
+                  key,
+                  color: a.color,
+                  strokeWidth: a.width,
+                  classed: `${a.opacity} ${a.style}`,
+                };
+              })), []);
+          data.push(...timeSeriesAnnotations);
+        }
+      }
+
+      // rerender chart
+      svg.datum(data)
+        .attr('height', height)
+        .attr('width', width)
+        .call(chart);
     }
-
-    // on scroll, hide tooltips. throttle to only 4x/second.
-    $(window).scroll(throttle(hideTooltips, 250));
-
     return chart;
   };
 

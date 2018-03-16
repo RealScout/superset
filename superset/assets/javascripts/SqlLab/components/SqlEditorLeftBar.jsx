@@ -7,6 +7,7 @@ import createFilterOptions from 'react-select-fast-filter-options';
 
 import TableElement from './TableElement';
 import AsyncSelect from '../../components/AsyncSelect';
+import { t } from '../../locales';
 
 const $ = window.$ = require('jquery');
 
@@ -15,6 +16,7 @@ const propTypes = {
   height: PropTypes.number.isRequired,
   tables: PropTypes.array,
   actions: PropTypes.object,
+  database: PropTypes.object,
 };
 
 const defaultProps = {
@@ -62,7 +64,7 @@ class SqlEditorLeftBar extends React.PureComponent {
     if (data.result.length === 0) {
       this.props.actions.addAlert({
         bsStyle: 'danger',
-        msg: "It seems you don't have access to any database",
+        msg: t('It seems you don\'t have access to any database'),
       });
     }
     return options;
@@ -86,7 +88,7 @@ class SqlEditorLeftBar extends React.PureComponent {
       })
       .fail(() => {
         this.setState({ tableLoading: false, tableOptions: [], tableLength: 0 });
-        notify.error('Error while fetching table list');
+        notify.error(t('Error while fetching table list'));
       });
     } else {
       this.setState({ tableLoading: false, tableOptions: [], filterOptions: null });
@@ -127,7 +129,7 @@ class SqlEditorLeftBar extends React.PureComponent {
       })
       .fail(() => {
         this.setState({ schemaLoading: false, schemaOptions: [] });
-        notify.error('Error while fetching schema list');
+        notify.error(t('Error while fetching schema list'));
       });
     }
   }
@@ -138,6 +140,14 @@ class SqlEditorLeftBar extends React.PureComponent {
   render() {
     const shouldShowReset = window.location.search === '?reset=1';
     const tableMetaDataHeight = this.props.height - 130; // 130 is the height of the selects above
+    let tableSelectPlaceholder;
+    let tableSelectDisabled = false;
+    if (this.props.database && this.props.database.allow_multi_schema_metadata_fetch) {
+      tableSelectPlaceholder = t('Type to search ...');
+    } else {
+      tableSelectPlaceholder = t('Select table ');
+      tableSelectDisabled = true;
+    }
     return (
       <div className="clearfix sql-toolbar">
         <div>
@@ -149,29 +159,29 @@ class SqlEditorLeftBar extends React.PureComponent {
               '_od_DatabaseAsync=asc'
             }
             onChange={this.onDatabaseChange.bind(this)}
-            onAsyncError={() => notify.error('Error while fetching database list')}
+            onAsyncError={() => notify.error(t('Error while fetching database list'))}
             value={this.props.queryEditor.dbId}
             databaseId={this.props.queryEditor.dbId}
             actions={this.props.actions}
             valueRenderer={o => (
               <div>
-                <span className="text-muted">Database:</span> {o.label}
+                <span className="text-muted">{t('Database:')}</span> {o.label}
               </div>
             )}
             mutator={this.dbMutator.bind(this)}
-            placeholder="Select a database"
+            placeholder={t('Select a database')}
             autoSelect
           />
         </div>
         <div className="m-t-5">
           <Select
             name="select-schema"
-            placeholder={`Select a schema (${this.state.schemaOptions.length})`}
+            placeholder={t('Select a schema (%s)', this.state.schemaOptions.length)}
             options={this.state.schemaOptions}
             value={this.props.queryEditor.schema}
             valueRenderer={o => (
               <div>
-                <span className="text-muted">Schema:</span> {o.label}
+                <span className="text-muted">{t('Schema:')}</span> {o.label}
               </div>
             )}
             isLoading={this.state.schemaLoading}
@@ -185,8 +195,7 @@ class SqlEditorLeftBar extends React.PureComponent {
               name="select-table"
               ref="selectTable"
               isLoading={this.state.tableLoading}
-              value={this.state.tableName}
-              placeholder={`Add a table (${this.state.tableOptions.length})`}
+              placeholder={t('Add a table (%s)', this.state.tableOptions.length)}
               autosize={false}
               onChange={this.changeTable.bind(this)}
               filterOptions={this.state.filterOptions}
@@ -198,8 +207,8 @@ class SqlEditorLeftBar extends React.PureComponent {
               async
               name="async-select-table"
               ref="selectTable"
-              value={this.state.tableName}
-              placeholder={'Type to search ...'}
+              placeholder={tableSelectPlaceholder}
+              disabled={tableSelectDisabled}
               autosize={false}
               onChange={this.changeTable.bind(this)}
               loadOptions={this.getTableNamesBySubStr.bind(this)}
@@ -222,7 +231,7 @@ class SqlEditorLeftBar extends React.PureComponent {
         </div>
         {shouldShowReset &&
           <Button bsSize="small" bsStyle="danger" onClick={this.resetState.bind(this)}>
-            <i className="fa fa-bomb" /> Reset State
+            <i className="fa fa-bomb" /> {t('Reset State')}
           </Button>
         }
       </div>

@@ -1,15 +1,30 @@
 import React from 'react';
 import PropTypes from 'prop-types';
 
+import ColumnTypeLabel from './ColumnTypeLabel';
 import InfoTooltipWithTrigger from './InfoTooltipWithTrigger';
 
 const propTypes = {
   column: PropTypes.object.isRequired,
+  showType: PropTypes.bool,
+};
+const defaultProps = {
+  showType: false,
 };
 
-export default function ColumnOption({ column }) {
+export default function ColumnOption({ column, showType }) {
+  const hasExpression = column.expression && column.expression !== column.column_name;
+
+  let columnType = column.type;
+  if (column.is_dttm) {
+    columnType = 'time';
+  } else if (hasExpression) {
+    columnType = 'expression';
+  }
+
   return (
     <span>
+      {showType && <ColumnTypeLabel type={columnType} />}
       <span className="m-r-5 option-label">
         {column.verbose_name || column.column_name}
       </span>
@@ -21,7 +36,7 @@ export default function ColumnOption({ column }) {
           label={`descr-${column.column_name}`}
         />
       }
-      {column.expression && column.expression !== column.column_name &&
+      {hasExpression &&
         <InfoTooltipWithTrigger
           className="m-r-5 text-muted"
           icon="question-circle-o"
@@ -32,3 +47,4 @@ export default function ColumnOption({ column }) {
     </span>);
 }
 ColumnOption.propTypes = propTypes;
+ColumnOption.defaultProps = defaultProps;

@@ -1,11 +1,19 @@
-import unittest
+# -*- coding: utf-8 -*-
+from __future__ import absolute_import
+from __future__ import division
+from __future__ import print_function
+from __future__ import unicode_literals
+
+import textwrap
 
 from sqlalchemy.engine.url import make_url
+from tests.base_tests import SupersetTestCase
 
+from superset import db
 from superset.models.core import Database
 
 
-class DatabaseModelTestCase(unittest.TestCase):
+class DatabaseModelTestCase(SupersetTestCase):
 
     def test_database_schema_presto(self):
         sqlalchemy_uri = 'presto://presto.airbnb.io:8080/hive/default'
@@ -54,3 +62,38 @@ class DatabaseModelTestCase(unittest.TestCase):
 
         db = make_url(model.get_sqla_engine(schema='staging').url).database
         self.assertEquals('staging', db)
+
+    def test_database_impersonate_user(self):
+        uri = 'mysql://root@localhost'
+        example_user = 'giuseppe'
+        model = Database(sqlalchemy_uri=uri)
+
+        model.impersonate_user = True
+        user_name = make_url(model.get_sqla_engine(user_name=example_user).url).username
+        self.assertEquals(example_user, user_name)
+
+        model.impersonate_user = False
+        user_name = make_url(model.get_sqla_engine(user_name=example_user).url).username
+        self.assertNotEquals(example_user, user_name)
+
+    def test_select_star(self):
+        main_db = self.get_main_database(db.session)
+        table_name = 'bart_lines'
+        sql = main_db.select_star(
+            table_name, show_cols=False, latest_partition=False)
+        expected = textwrap.dedent("""\
+        SELECT *
+        FROM {table_name}
+        LIMIT 100""".format(**locals()))
+        assert sql.startswith(expected)
+
+        sql = main_db.select_star(
+            table_name, show_cols=True, latest_partition=False)
+        expected = textwrap.dedent("""\
+        SELECT color,
+               name,
+               path_json,
+               polyline
+        FROM bart_lines
+        LIMIT 100""".format(**locals()))
+        assert sql.startswith(expected)

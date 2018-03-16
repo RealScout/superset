@@ -23,6 +23,7 @@ describe('SqlEditorLeftBar', () => {
     },
     tables: [table],
     queryEditor: defaultQueryEditor,
+    database: {},
     height: 0,
   };
 
@@ -91,7 +92,7 @@ describe('SqlEditorLeftBar', () => {
   it('dbMutator should build databases options', () => {
     const options = wrapper.instance().dbMutator(databases);
     expect(options).to.deep.equal([
-      { value: 188, label: 'main' },
+      { value: 1, label: 'main' },
       { value: 208, label: 'Presto - Gold' },
     ]);
   });

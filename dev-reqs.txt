@@ -1,13 +1,12 @@
 codeclimate-test-reporter
-coveralls
 flake8
 flask_cors
+ipdb
 mock
 mysqlclient
 nose
 psycopg2
 pylint
-pythrifthiveapi
 pyyaml
 redis
 statsd

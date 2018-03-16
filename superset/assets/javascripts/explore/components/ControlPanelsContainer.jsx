@@ -3,8 +3,8 @@ import React from 'react';
 import PropTypes from 'prop-types';
 import { bindActionCreators } from 'redux';
 import { connect } from 'react-redux';
-import { Alert } from 'react-bootstrap';
-import { sectionsToRender } from '../stores/visTypes';
+import { Alert, Tab, Tabs } from 'react-bootstrap';
+import visTypes, { sectionsToRender } from '../stores/visTypes';
 import ControlPanelSection from './ControlPanelSection';
 import ControlRow from './ControlRow';
 import Control from './Control';
@@ -26,13 +26,23 @@ class ControlPanelsContainer extends React.Component {
     super(props);
     this.removeAlert = this.removeAlert.bind(this);
     this.getControlData = this.getControlData.bind(this);
+    this.renderControlPanelSection = this.renderControlPanelSection.bind(this);
   }
   getControlData(controlName) {
-    const mapF = controls[controlName].mapStateToProps;
-    if (mapF) {
-      return Object.assign({}, this.props.controls[controlName], mapF(this.props.exploreState));
+    const control = this.props.controls[controlName];
+    // Identifying mapStateToProps function to apply (logic can't be in store)
+    let mapF = controls[controlName].mapStateToProps;
+
+    // Looking to find mapStateToProps override for this viz type
+    const controlOverrides = visTypes[this.props.controls.viz_type.value].controlOverrides || {};
+    if (controlOverrides[controlName] && controlOverrides[controlName].mapStateToProps) {
+      mapF = controlOverrides[controlName].mapStateToProps;
     }
-    return this.props.controls[controlName];
+    // Applying mapStateToProps if needed
+    if (mapF) {
+      return Object.assign({}, control, mapF(this.props.exploreState, control));
+    }
+    return control;
   }
   sectionsToRender() {
     return sectionsToRender(this.props.form_data.viz_type, this.props.datasource_type);
@@ -40,7 +50,61 @@ class ControlPanelsContainer extends React.Component {
   removeAlert() {
     this.props.actions.removeControlPanelAlert();
   }
+  renderControlPanelSection(section) {
+    const ctrls = this.props.controls;
+    const hasErrors = section.controlSetRows.some(rows => rows.some(s => (
+        ctrls[s] &&
+        ctrls[s].validationErrors &&
+        (ctrls[s].validationErrors.length > 0)
+    )));
+    return (
+      <ControlPanelSection
+        key={section.label}
+        label={section.label}
+        startExpanded={section.expanded}
+        hasErrors={hasErrors}
+        description={section.description}
+      >
+        {section.controlSetRows.map((controlSets, i) => (
+          <ControlRow
+            key={`controlsetrow-${i}`}
+            className="control-row"
+            controls={controlSets.map(controlName => (
+              controlName &&
+              ctrls[controlName] &&
+                <Control
+                  name={controlName}
+                  key={`control-${controlName}`}
+                  value={this.props.form_data[controlName]}
+                  validationErrors={ctrls[controlName].validationErrors}
+                  actions={this.props.actions}
+                  {...this.getControlData(controlName)}
+                />
+            ))}
+          />
+        ))}
+      </ControlPanelSection>
+    );
+  }
   render() {
+    const allSectionsToRender = this.sectionsToRender();
+    const querySectionsToRender = [];
+    const displaySectionsToRender = [];
+    allSectionsToRender.forEach((section) => {
+      if (section.controlSetRows.some(rows => rows.some(
+        control => (
+          controls[control] &&
+          (
+            !controls[control].renderTrigger ||
+            controls[control].tabOverride === 'data'
+          )
+        )))) {
+        querySectionsToRender.push(section);
+      } else {
+        displaySectionsToRender.push(section);
+      }
+    });
+
     return (
       <div className="scrollbar-container">
         <div className="scrollbar-content">
@@ -54,30 +118,16 @@ class ControlPanelsContainer extends React.Component {
               />
             </Alert>
           }
-          {this.sectionsToRender().map(section => (
-            <ControlPanelSection
-              key={section.label}
-              label={section.label}
-              tooltip={section.description}
-            >
-              {section.controlSetRows.map((controlSets, i) => (
-                <ControlRow
-                  key={`controlsetrow-${i}`}
-                  controls={controlSets.map(controlName => (
-                    controlName &&
-                      <Control
-                        name={controlName}
-                        key={`control-${controlName}`}
-                        value={this.props.form_data[controlName]}
-                        validationErrors={this.props.controls[controlName].validationErrors}
-                        actions={this.props.actions}
-                        {...this.getControlData(controlName)}
-                      />
-                  ))}
-                />
-              ))}
-            </ControlPanelSection>
-          ))}
+          <Tabs id="controlSections">
+            <Tab eventKey="query" title="Data">
+              {querySectionsToRender.map(this.renderControlPanelSection)}
+            </Tab>
+            {displaySectionsToRender.length > 0 &&
+              <Tab eventKey="display" title="Style">
+                {displaySectionsToRender.map(this.renderControlPanelSection)}
+              </Tab>
+            }
+          </Tabs>
         </div>
       </div>
     );
@@ -86,12 +136,12 @@ class ControlPanelsContainer extends React.Component {
 
 ControlPanelsContainer.propTypes = propTypes;
 
-function mapStateToProps(state) {
+function mapStateToProps({ explore }) {
   return {
-    alert: state.controlPanelAlert,
-    isDatasourceMetaLoading: state.isDatasourceMetaLoading,
-    controls: state.controls,
-    exploreState: state,
+    alert: explore.controlPanelAlert,
+    isDatasourceMetaLoading: explore.isDatasourceMetaLoading,
+    controls: explore.controls,
+    exploreState: explore,
   };
 }
 

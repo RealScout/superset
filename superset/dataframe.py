@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """ Superset wrapper around pandas.DataFrame.
 
 TODO(bkyryliuk): add support for the conventions like: *_dim or dim_*
@@ -10,11 +11,13 @@ from __future__ import division
 from __future__ import print_function
 from __future__ import unicode_literals
 
-from datetime import datetime, date
-from past.builtins import basestring
+from datetime import date, datetime
 
-import pandas as pd
 import numpy as np
+import pandas as pd
+from pandas.core.common import _maybe_box_datetimelike
+from pandas.core.dtypes.dtypes import ExtensionDtype
+from past.builtins import basestring
 
 
 INFER_COL_TYPES_THRESHOLD = 95
@@ -47,11 +50,16 @@ class SupersetDataFrame(object):
 
     @property
     def data(self):
-        return self.__df.to_dict(orient='records')
+        # work around for https://github.com/pandas-dev/pandas/issues/18372
+        return [dict((k, _maybe_box_datetimelike(v))
+                     for k, v in zip(self.__df.columns, np.atleast_1d(row)))
+                for row in self.__df.values]
 
     @classmethod
     def db_type(cls, dtype):
         """Given a numpy dtype, Returns a generic database type"""
+        if isinstance(dtype, ExtensionDtype):
+            return cls.type_map.get(dtype.kind)
         return cls.type_map.get(dtype.char)
 
     @classmethod
@@ -87,8 +95,10 @@ class SupersetDataFrame(object):
         # consider checking for key substring too.
         if cls.is_id(column_name):
             return 'count_distinct'
-        if np.issubdtype(dtype, np.number):
+        if (issubclass(dtype.type, np.generic) and
+                np.issubdtype(dtype, np.number)):
             return 'sum'
+        return None
 
     @property
     def columns(self):
@@ -134,7 +144,7 @@ class SupersetDataFrame(object):
                     column.update({
                         'is_date': True,
                         'is_dim': False,
-                        'agg': None
+                        'agg': None,
                     })
             # 'agg' is optional attribute
             if not column['agg']:

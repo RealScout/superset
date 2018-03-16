@@ -1,7 +1,13 @@
+# -*- coding: utf-8 -*-
+from __future__ import absolute_import
+from __future__ import division
+from __future__ import print_function
+from __future__ import unicode_literals
+
 import logging
 
 import sqlparse
-from sqlparse.sql import IdentifierList, Identifier
+from sqlparse.sql import Identifier, IdentifierList
 from sqlparse.tokens import Keyword, Name
 
 RESULT_OPERATIONS = {'UNION', 'INTERSECT', 'EXCEPT'}
@@ -15,7 +21,7 @@ class SupersetQuery(object):
         self._table_names = set()
         self._alias_names = set()
         # TODO: multistatement support
-        logging.info("Parsing with sqlparse statement {}".format(self.sql))
+        logging.info('Parsing with sqlparse statement {}'.format(self.sql))
         self._parsed = sqlparse.parse(self.sql)
         for statement in self._parsed:
             self.__extract_from_token(statement)
@@ -45,7 +51,7 @@ class SupersetQuery(object):
     @staticmethod
     def __get_full_name(identifier):
         if len(identifier.tokens) > 1 and identifier.tokens[1].value == '.':
-            return "{}.{}".format(identifier.tokens[0].value,
+            return '{}.{}'.format(identifier.tokens[0].value,
                                   identifier.tokens[2].value)
         return identifier.get_real_name()
 
@@ -96,7 +102,7 @@ class SupersetQuery(object):
         sql = self.stripped()
         if overwrite:
             exec_sql = 'DROP TABLE IF EXISTS {table_name};\n'
-        exec_sql += "CREATE TABLE {table_name} AS \n{sql}"
+        exec_sql += 'CREATE TABLE {table_name} AS \n{sql}'
         return exec_sql.format(**locals())
 
     def __extract_from_token(self, token):

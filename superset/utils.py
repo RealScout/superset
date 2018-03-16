@@ -1,47 +1,52 @@
+# -*- coding: utf-8 -*-
 """Utility functions used across Superset"""
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 from __future__ import unicode_literals
 
+from builtins import object
+from datetime import date, datetime, time, timedelta
 import decimal
+from email.mime.application import MIMEApplication
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+from email.utils import formatdate
 import functools
 import json
 import logging
-import numpy
 import os
-import parsedatetime
-import pytz
-import smtplib
-import sqlalchemy as sa
 import signal
-import uuid
+import smtplib
 import sys
+import uuid
 import zlib
 
-from builtins import object
-from datetime import date, datetime, time
-
+import bleach
 import celery
 from dateutil.parser import parse
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
-from email.mime.application import MIMEApplication
-from email.utils import formatdate
-from flask import flash, Markup, render_template, url_for, redirect, request
-from flask_appbuilder.const import (
-    LOGMSG_ERR_SEC_ACCESS_DENIED,
-    FLAMSG_ERR_SEC_ACCESS_DENIED,
-    PERMISSION_PREFIX
-)
-from flask_cache import Cache
+from flask import flash, Markup, redirect, render_template, request, url_for
 from flask_appbuilder._compat import as_unicode
+from flask_appbuilder.const import (
+    FLAMSG_ERR_SEC_ACCESS_DENIED,
+    LOGMSG_ERR_SEC_ACCESS_DENIED,
+    PERMISSION_PREFIX,
+)
 from flask_babel import gettext as __
+from flask_cache import Cache
 import markdown as md
+import numpy
+import pandas as pd
+import parsedatetime
 from past.builtins import basestring
 from pydruid.utils.having import Having
-from sqlalchemy import event, exc
-from sqlalchemy.types import TypeDecorator, TEXT
+import pytz
+import sqlalchemy as sa
+from sqlalchemy import event, exc, select
+from sqlalchemy.types import TEXT, TypeDecorator
+
+from superset.exceptions import SupersetException, SupersetTimeoutException
+
 
 logging.getLogger('MARKDOWN').setLevel(logging.INFO)
 
@@ -50,36 +55,11 @@ EPOCH = datetime(1970, 1, 1)
 DTTM_ALIAS = '__timestamp'
 
 
-class SupersetException(Exception):
-    pass
-
-
-class SupersetTimeoutException(SupersetException):
-    pass
-
-
-class SupersetSecurityException(SupersetException):
-    pass
-
-
-class MetricPermException(SupersetException):
-    pass
-
-
-class NoDataException(SupersetException):
-    pass
-
-
-class SupersetTemplateException(SupersetException):
-    pass
-
-
 def can_access(sm, permission_name, view_name, user):
     """Protecting from has_access failing from missing perms/view"""
     if user.is_anonymous():
         return sm.is_item_public(permission_name, view_name)
-    else:
-        return sm._has_view_access(user, permission_name, view_name)
+    return sm._has_view_access(user, permission_name, view_name)
 
 
 def flasher(msg, severity=None):
@@ -93,37 +73,56 @@ def flasher(msg, severity=None):
             logging.info(msg)
 
 
-class memoized(object):  # noqa
-
+class _memoized(object):  # noqa
     """Decorator that caches a function's return value each time it is called
 
     If called later with the same arguments, the cached value is returned, and
     not re-evaluated.
+
+    Define ``watch`` as a tuple of attribute names if this Decorator
+    should account for instance variable changes.
     """
 
-    def __init__(self, func):
+    def __init__(self, func, watch=()):
         self.func = func
         self.cache = {}
+        self.is_method = False
+        self.watch = watch
 
-    def __call__(self, *args):
+    def __call__(self, *args, **kwargs):
+        key = [args, frozenset(kwargs.items())]
+        if self.is_method:
+            key.append(tuple([getattr(args[0], v, None) for v in self.watch]))
+        key = tuple(key)
+        if key in self.cache:
+            return self.cache[key]
         try:
-            return self.cache[args]
-        except KeyError:
-            value = self.func(*args)
-            self.cache[args] = value
+            value = self.func(*args, **kwargs)
+            self.cache[key] = value
             return value
         except TypeError:
             # uncachable -- for instance, passing a list as an argument.
             # Better to not cache than to blow up entirely.
-            return self.func(*args)
+            return self.func(*args, **kwargs)
 
     def __repr__(self):
         """Return the function's docstring."""
         return self.func.__doc__
 
     def __get__(self, obj, objtype):
+        if not self.is_method:
+            self.is_method = True
         """Support instance methods."""
         return functools.partial(self.__call__, obj)
+
+
+def memoized(func=None, watch=None):
+    if func:
+        return _memoized(func)
+    else:
+        def wrapper(f):
+            return _memoized(f, watch)
+        return wrapper
 
 
 def js_string_to_python(item):
@@ -161,11 +160,13 @@ class DimSelector(Having):
         # Just a hack to prevent any exceptions
         Having.__init__(self, type='equalTo', aggregation=None, value=None)
 
-        self.having = {'having': {
-            'type': 'dimSelector',
-            'dimension': args['dimension'],
-            'value': args['value'],
-        }}
+        self.having = {
+            'having': {
+                'type': 'dimSelector',
+                'dimension': args['dimension'],
+                'value': args['value'],
+            },
+        }
 
 
 def list_minus(l, minus):
@@ -187,9 +188,9 @@ def parse_human_datetime(s):
     datetime.datetime(2015, 4, 3, 0, 0)
     >>> parse_human_datetime('2/3/1969')
     datetime.datetime(1969, 2, 3, 0, 0)
-    >>> parse_human_datetime("now") <= datetime.now()
+    >>> parse_human_datetime('now') <= datetime.now()
     True
-    >>> parse_human_datetime("yesterday") <= datetime.now()
+    >>> parse_human_datetime('yesterday') <= datetime.now()
     True
     >>> date.today() - timedelta(1) == parse_human_datetime('yesterday').date()
     True
@@ -198,12 +199,18 @@ def parse_human_datetime(s):
     >>> year_ago_1 == year_ago_2
     True
     """
+    if not s:
+        return None
     try:
         dttm = parse(s)
     except Exception:
         try:
             cal = parsedatetime.Calendar()
-            dttm = dttm_from_timtuple(cal.parse(s)[0])
+            parsed_dttm, parsed_flags = cal.parseDT(s)
+            # when time is not extracted, we 'reset to midnight'
+            if parsed_flags & 2 == 0:
+                parsed_dttm = parsed_dttm.replace(hour=0, minute=0, second=0)
+            dttm = dttm_from_timtuple(parsed_dttm.utctimetuple())
         except Exception as e:
             logging.exception(e)
             raise ValueError("Couldn't parse date string [{}]".format(s))
@@ -215,23 +222,70 @@ def dttm_from_timtuple(d):
         d.tm_year, d.tm_mon, d.tm_mday, d.tm_hour, d.tm_min, d.tm_sec)
 
 
+def decode_dashboards(o):
+    """
+    Function to be passed into json.loads obj_hook parameter
+    Recreates the dashboard object from a json representation.
+    """
+    import superset.models.core as models
+    from superset.connectors.sqla.models import (
+        SqlaTable, SqlMetric, TableColumn,
+    )
+
+    if '__Dashboard__' in o:
+        d = models.Dashboard()
+        d.__dict__.update(o['__Dashboard__'])
+        return d
+    elif '__Slice__' in o:
+        d = models.Slice()
+        d.__dict__.update(o['__Slice__'])
+        return d
+    elif '__TableColumn__' in o:
+        d = TableColumn()
+        d.__dict__.update(o['__TableColumn__'])
+        return d
+    elif '__SqlaTable__' in o:
+        d = SqlaTable()
+        d.__dict__.update(o['__SqlaTable__'])
+        return d
+    elif '__SqlMetric__' in o:
+        d = SqlMetric()
+        d.__dict__.update(o['__SqlMetric__'])
+        return d
+    elif '__datetime__' in o:
+        return datetime.strptime(o['__datetime__'], '%Y-%m-%dT%H:%M:%S')
+    else:
+        return o
+
+
+class DashboardEncoder(json.JSONEncoder):
+    # pylint: disable=E0202
+    def default(self, o):
+        try:
+            vals = {
+                k: v for k, v in o.__dict__.items() if k != '_sa_instance_state'}
+            return {'__{}__'.format(o.__class__.__name__): vals}
+        except Exception:
+            if type(o) == datetime:
+                return {'__datetime__': o.replace(microsecond=0).isoformat()}
+            return json.JSONEncoder.default(self, o)
+
+
 def parse_human_timedelta(s):
     """
     Returns ``datetime.datetime`` from natural language time deltas
 
-    >>> parse_human_datetime("now") <= datetime.now()
+    >>> parse_human_datetime('now') <= datetime.now()
     True
     """
     cal = parsedatetime.Calendar()
     dttm = dttm_from_timtuple(datetime.now().timetuple())
     d = cal.parse(s, dttm)[0]
-    d = datetime(
-        d.tm_year, d.tm_mon, d.tm_mday, d.tm_hour, d.tm_min, d.tm_sec)
+    d = datetime(d.tm_year, d.tm_mon, d.tm_mday, d.tm_hour, d.tm_min, d.tm_sec)
     return d - dttm
 
 
 class JSONEncodedDict(TypeDecorator):
-
     """Represents an immutable structure as a json-encoded string."""
 
     impl = TEXT
@@ -257,7 +311,7 @@ def datetime_f(dttm):
             dttm = dttm[11:]
         elif now_iso[:4] == dttm[:4]:
             dttm = dttm[5:]
-    return "<nobr>{}</nobr>".format(dttm)
+    return '<nobr>{}</nobr>'.format(dttm)
 
 
 def base_json_conv(obj):
@@ -272,9 +326,11 @@ def base_json_conv(obj):
         return float(obj)
     elif isinstance(obj, uuid.UUID):
         return str(obj)
+    elif isinstance(obj, timedelta):
+        return str(obj)
 
 
-def json_iso_dttm_ser(obj):
+def json_iso_dttm_ser(obj, pessimistic=False):
     """
     json serializer that deals with dates
 
@@ -285,17 +341,22 @@ def json_iso_dttm_ser(obj):
     val = base_json_conv(obj)
     if val is not None:
         return val
-    if isinstance(obj, datetime):
-        obj = obj.isoformat()
-    elif isinstance(obj, date):
-        obj = obj.isoformat()
-    elif isinstance(obj, time):
+    if isinstance(obj, (datetime, date, time, pd.Timestamp)):
         obj = obj.isoformat()
     else:
-        raise TypeError(
-            "Unserializable object {} of type {}".format(obj, type(obj))
-        )
+        if pessimistic:
+            return 'Unserializable [{}]'.format(type(obj))
+        else:
+            raise TypeError(
+                'Unserializable object {} of type {}'.format(obj, type(obj)))
     return obj
+
+
+def pessimistic_json_iso_dttm_ser(obj):
+    """Proxy to call json_iso_dttm_ser in a pessimistic way
+
+    If one of object is not serializable to json, it will still succeed"""
+    return json_iso_dttm_ser(obj, pessimistic=True)
 
 
 def datetime_to_epoch(dttm):
@@ -314,14 +375,13 @@ def json_int_dttm_ser(obj):
     val = base_json_conv(obj)
     if val is not None:
         return val
-    if isinstance(obj, datetime):
+    if isinstance(obj, (datetime, pd.Timestamp)):
         obj = datetime_to_epoch(obj)
     elif isinstance(obj, date):
         obj = (obj - EPOCH.date()).total_seconds() * 1000
     else:
         raise TypeError(
-            "Unserializable object {} of type {}".format(obj, type(obj))
-        )
+            'Unserializable object {} of type {}'.format(obj, type(obj)))
     return obj
 
 
@@ -340,24 +400,31 @@ def error_msg_from_exception(e):
                      created via create_engine.
     engine = create_engine('presto://localhost:3506/silver') -
       gives an e.message as the str(dict)
-    presto.connect("localhost", port=3506, catalog='silver') - as a dict.
+    presto.connect('localhost', port=3506, catalog='silver') - as a dict.
     The latter version is parsed correctly by this function.
     """
     msg = ''
     if hasattr(e, 'message'):
-        if type(e.message) is dict:
+        if isinstance(e.message, dict):
             msg = e.message.get('message')
         elif e.message:
-            msg = "{}".format(e.message)
+            msg = '{}'.format(e.message)
     return msg or '{}'.format(e)
 
 
 def markdown(s, markup_wrap=False):
+    safe_markdown_tags = ['h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'b', 'i',
+                          'strong', 'em', 'tt', 'p', 'br', 'span',
+                          'div', 'blockquote', 'code', 'hr', 'ul', 'ol',
+                          'li', 'dd', 'dt', 'img', 'a']
+    safe_markdown_attrs = {'img': ['src', 'alt', 'title'],
+                           'a': ['href', 'alt', 'title']}
     s = md.markdown(s or '', [
         'markdown.extensions.tables',
         'markdown.extensions.fenced_code',
         'markdown.extensions.codehilite',
     ])
+    s = bleach.clean(s, safe_markdown_tags, safe_markdown_attrs)
     if markup_wrap:
         s = Markup(s)
     return s
@@ -374,21 +441,45 @@ def generic_find_constraint_name(table, columns, referenced, db):
     t = sa.Table(table, db.metadata, autoload=True, autoload_with=db.engine)
 
     for fk in t.foreign_key_constraints:
-        if (
-                fk.referred_table.name == referenced and
-                set(fk.column_keys) == columns):
+        if fk.referred_table.name == referenced and set(fk.column_keys) == columns:
             return fk.name
+
+
+def generic_find_fk_constraint_name(table, columns, referenced, insp):
+    """Utility to find a foreign-key constraint name in alembic migrations"""
+    for fk in insp.get_foreign_keys(table):
+        if fk['referred_table'] == referenced and set(fk['referred_columns']) == columns:
+            return fk['name']
+
+
+def generic_find_fk_constraint_names(table, columns, referenced, insp):
+    """Utility to find foreign-key constraint names in alembic migrations"""
+    names = set()
+
+    for fk in insp.get_foreign_keys(table):
+        if fk['referred_table'] == referenced and set(fk['referred_columns']) == columns:
+            names.add(fk['name'])
+
+    return names
+
+
+def generic_find_uq_constraint_name(table, columns, insp):
+    """Utility to find a unique constraint name in alembic migrations"""
+
+    for uq in insp.get_unique_constraints(table):
+        if columns == set(uq['column_names']):
+            return uq['name']
 
 
 def get_datasource_full_name(database_name, datasource_name, schema=None):
     if not schema:
-        return "[{}].[{}]".format(database_name, datasource_name)
-    return "[{}].[{}].[{}]".format(database_name, schema, datasource_name)
+        return '[{}].[{}]'.format(database_name, datasource_name)
+    return '[{}].[{}].[{}]'.format(database_name, schema, datasource_name)
 
 
 def get_schema_perm(database, schema):
     if schema:
-        return "[{}].[{}]".format(database, schema)
+        return '[{}].[{}]'.format(database, schema)
 
 
 def validate_json(obj):
@@ -396,7 +487,7 @@ def validate_json(obj):
         try:
             json.loads(obj)
         except Exception:
-            raise SupersetException("JSON is not valid")
+            raise SupersetException('JSON is not valid')
 
 
 def table_has_constraint(table, name, db):
@@ -413,12 +504,13 @@ class timeout(object):
     """
     To be used in a ``with`` block and timeout its content.
     """
+
     def __init__(self, seconds=1, error_message='Timeout'):
         self.seconds = seconds
         self.error_message = error_message
 
     def handle_timeout(self, signum, frame):
-        logging.error("Process timed out")
+        logging.error('Process timed out')
         raise SupersetTimeoutException(self.error_message)
 
     def __enter__(self):
@@ -436,23 +528,45 @@ class timeout(object):
             logging.warning("timeout can't be used in the current context")
             logging.exception(e)
 
-def pessimistic_connection_handling(target):
-    @event.listens_for(target, "checkout")
-    def ping_connection(dbapi_connection, connection_record, connection_proxy):
-        """
-        Disconnect Handling - Pessimistic, taken from:
-        http://docs.sqlalchemy.org/en/rel_0_9/core/pooling.html
-        """
-        cursor = dbapi_connection.cursor()
+
+def pessimistic_connection_handling(some_engine):
+    @event.listens_for(some_engine, 'engine_connect')
+    def ping_connection(connection, branch):
+        if branch:
+            # 'branch' refers to a sub-connection of a connection,
+            # we don't want to bother pinging on these.
+            return
+
+        # turn off 'close with result'.  This flag is only used with
+        # 'connectionless' execution, otherwise will be False in any case
+        save_should_close_with_result = connection.should_close_with_result
+        connection.should_close_with_result = False
+
         try:
-            cursor.execute("SELECT 1")
-        except:
-            raise exc.DisconnectionError()
-        cursor.close()
+            # run a SELECT 1.   use a core select() so that
+            # the SELECT of a scalar value without a table is
+            # appropriately formatted for the backend
+            connection.scalar(select([1]))
+        except exc.DBAPIError as err:
+            # catch SQLAlchemy's DBAPIError, which is a wrapper
+            # for the DBAPI's exception.  It includes a .connection_invalidated
+            # attribute which specifies if this connection is a 'disconnect'
+            # condition, which is based on inspection of the original exception
+            # by the dialect in use.
+            if err.connection_invalidated:
+                # run the same SELECT again - the connection will re-validate
+                # itself and establish a new connection.  The disconnect detection
+                # here also causes the whole connection pool to be invalidated
+                # so that all stale connections are discarded.
+                connection.scalar(select([1]))
+            else:
+                raise
+        finally:
+            # restore 'close with result'
+            connection.should_close_with_result = save_should_close_with_result
 
 
 class QueryStatus(object):
-
     """Enum-type class for query statuses"""
 
     STOPPED = 'stopped'
@@ -489,11 +603,11 @@ def send_email_smtp(to, subject, html_content, config, files=None,
     msg = MIMEMultipart(mime_subtype)
     msg['Subject'] = subject
     msg['From'] = smtp_mail_from
-    msg['To'] = ", ".join(to)
+    msg['To'] = ', '.join(to)
     recipients = to
     if cc:
         cc = get_email_address_list(cc)
-        msg['CC'] = ", ".join(cc)
+        msg['CC'] = ', '.join(cc)
         recipients = recipients + cc
 
     if bcc:
@@ -507,12 +621,12 @@ def send_email_smtp(to, subject, html_content, config, files=None,
 
     for fname in files or []:
         basename = os.path.basename(fname)
-        with open(fname, "rb") as f:
-            msg.attach(MIMEApplication(
-                f.read(),
-                Content_Disposition='attachment; filename="%s"' % basename,
-                Name=basename
-            ))
+        with open(fname, 'rb') as f:
+            msg.attach(
+                MIMEApplication(
+                    f.read(),
+                    Content_Disposition="attachment; filename='%s'" % basename,
+                    Name=basename))
 
     send_MIME_email(smtp_mail_from, recipients, msg, config, dryrun=dryrun)
 
@@ -532,7 +646,7 @@ def send_MIME_email(e_from, e_to, mime_msg, config, dryrun=False):
             s.starttls()
         if SMTP_USER and SMTP_PASSWORD:
             s.login(SMTP_USER, SMTP_PASSWORD)
-        logging.info("Sent an alert email to " + str(e_to))
+        logging.info('Sent an alert email to ' + str(e_to))
         s.sendmail(e_from, e_to, mime_msg.as_string())
         s.quit()
     else:
@@ -569,17 +683,20 @@ def has_access(f):
 
     def wraps(self, *args, **kwargs):
         permission_str = PERMISSION_PREFIX + f._permission_name
-        if self.appbuilder.sm.has_access(
-                permission_str, self.__class__.__name__):
+        if self.appbuilder.sm.has_access(permission_str,
+                                         self.__class__.__name__):
             return f(self, *args, **kwargs)
         else:
-            logging.warning(LOGMSG_ERR_SEC_ACCESS_DENIED.format(
-                permission_str, self.__class__.__name__))
-            flash(as_unicode(FLAMSG_ERR_SEC_ACCESS_DENIED), "danger")
+            logging.warning(
+                LOGMSG_ERR_SEC_ACCESS_DENIED.format(permission_str,
+                                                    self.__class__.__name__))
+            flash(as_unicode(FLAMSG_ERR_SEC_ACCESS_DENIED), 'danger')
         # adds next arg to forward to the original path once user is logged in.
-        return redirect(url_for(
-            self.appbuilder.sm.auth_view.__class__.__name__ + ".login",
-            next=request.path))
+        return redirect(
+            url_for(
+                self.appbuilder.sm.auth_view.__class__.__name__ + '.login',
+                next=request.full_path))
+
     f._permission_name = permission_str
     return functools.update_wrapper(wraps, f)
 
@@ -603,7 +720,7 @@ def zlib_compress(data):
     """
     if PY3K:
         if isinstance(data, str):
-            return zlib.compress(bytes(data, "utf-8"))
+            return zlib.compress(bytes(data, 'utf-8'))
         return zlib.compress(data)
     return zlib.compress(data)
 
@@ -621,9 +738,10 @@ def zlib_decompress_to_string(blob):
         if isinstance(blob, bytes):
             decompressed = zlib.decompress(blob)
         else:
-            decompressed = zlib.decompress(bytes(blob, "utf-8"))
-        return decompressed.decode("utf-8")
+            decompressed = zlib.decompress(bytes(blob, 'utf-8'))
+        return decompressed.decode('utf-8')
     return zlib.decompress(blob)
+
 
 _celery_app = None
 
@@ -634,3 +752,76 @@ def get_celery_app(config):
         return _celery_app
     _celery_app = celery.Celery(config_source=config.get('CELERY_CONFIG'))
     return _celery_app
+
+
+def merge_extra_filters(form_data):
+    # extra_filters are temporary/contextual filters that are external
+    # to the slice definition. We use those for dynamic interactive
+    # filters like the ones emitted by the "Filter Box" visualization
+    if 'extra_filters' in form_data:
+        # __form and __to are special extra_filters that target time
+        # boundaries. The rest of extra_filters are simple
+        # [column_name in list_of_values]. `__` prefix is there to avoid
+        # potential conflicts with column that would be named `from` or `to`
+        if 'filters' not in form_data:
+            form_data['filters'] = []
+        date_options = {
+            '__from': 'since',
+            '__to': 'until',
+            '__time_col': 'granularity_sqla',
+            '__time_grain': 'time_grain_sqla',
+            '__time_origin': 'druid_time_origin',
+            '__granularity': 'granularity',
+        }
+        # Grab list of existing filters 'keyed' on the column and operator
+
+        def get_filter_key(f):
+            return f['col'] + '__' + f['op']
+        existing_filters = {}
+        for existing in form_data['filters']:
+            if existing['col'] is not None:
+                existing_filters[get_filter_key(existing)] = existing['val']
+        for filtr in form_data['extra_filters']:
+            # Pull out time filters/options and merge into form data
+            if date_options.get(filtr['col']):
+                if filtr.get('val'):
+                    form_data[date_options[filtr['col']]] = filtr['val']
+            elif filtr['val'] and len(filtr['val']):
+                # Merge column filters
+                filter_key = get_filter_key(filtr)
+                if filter_key in existing_filters:
+                    # Check if the filter already exists
+                    if isinstance(filtr['val'], list):
+                        if isinstance(existing_filters[filter_key], list):
+                            # Add filters for unequal lists
+                            # order doesn't matter
+                            if (
+                                sorted(existing_filters[filter_key]) !=
+                                sorted(filtr['val'])
+                            ):
+                                form_data['filters'] += [filtr]
+                        else:
+                            form_data['filters'] += [filtr]
+                    else:
+                        # Do not add filter if same value already exists
+                        if filtr['val'] != existing_filters[filter_key]:
+                            form_data['filters'] += [filtr]
+                else:
+                    # Filter not found, add it
+                    form_data['filters'] += [filtr]
+        # Remove extra filters from the form data since no longer needed
+        del form_data['extra_filters']
+
+
+def merge_request_params(form_data, params):
+    url_params = {}
+    for key, value in params.items():
+        if key in ('form_data', 'r'):
+            continue
+        url_params[key] = value
+    form_data['url_params'] = url_params
+
+
+def get_update_perms_flag():
+    val = os.environ.get('SUPERSET_UPDATE_PERMS')
+    return val.lower() not in ('0', 'false', 'no') if val else True

@@ -7,6 +7,7 @@ import 'brace/mode/css';
 import 'brace/theme/github';
 
 import ModalTrigger from '../../components/ModalTrigger';
+import { t } from '../../locales';
 
 const propTypes = {
   initialCss: PropTypes.string,
@@ -29,30 +30,10 @@ class CssEditor extends React.PureComponent {
       cssTemplateOptions: [],
     };
   }
-  componentWillMount() {
-    this.updateDom();
-  }
   changeCss(css) {
-    this.setState({ css }, this.updateDom);
-    this.props.onChange(css);
-  }
-  updateDom() {
-    const css = this.state.css;
-    const className = 'CssEditor-css';
-    const head = document.head || document.getElementsByTagName('head')[0];
-    let style = document.querySelector('.' + className);
-
-    if (!style) {
-      style = document.createElement('style');
-      style.className = className;
-      style.type = 'text/css';
-      head.appendChild(style);
-    }
-    if (style.styleSheet) {
-      style.styleSheet.cssText = css;
-    } else {
-      style.innerHTML = css;
-    }
+    this.setState({ css }, () => {
+      this.props.onChange(css);
+    });
   }
   changeCssTemplate(opt) {
     this.changeCss(opt.css);
@@ -61,10 +42,10 @@ class CssEditor extends React.PureComponent {
     if (this.props.templates) {
       return (
         <div style={{ zIndex: 10 }}>
-          <h5>Load a template</h5>
+          <h5>{t('Load a template')}</h5>
           <Select
             options={this.props.templates}
-            placeholder="Load a CSS template"
+            placeholder={t('Load a CSS template')}
             onChange={this.changeCssTemplate.bind(this)}
           />
         </div>
@@ -76,13 +57,13 @@ class CssEditor extends React.PureComponent {
     return (
       <ModalTrigger
         triggerNode={this.props.triggerNode}
-        modalTitle="CSS"
-        isButton
+        modalTitle={t('CSS')}
+        isMenuItem
         modalBody={
           <div>
             {this.renderTemplateSelector()}
             <div style={{ zIndex: 1 }}>
-              <h5>Live CSS Editor</h5>
+              <h5>{t('Live CSS Editor')}</h5>
               <div style={{ border: 'solid 1px grey' }}>
                 <AceEditor
                   mode="css"

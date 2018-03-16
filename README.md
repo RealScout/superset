@@ -1,17 +1,13 @@
 Superset
 =========
 
-[![Build Status](https://travis-ci.org/airbnb/superset.svg?branch=master)](https://travis-ci.org/airbnb/superset)
+[![Build Status](https://travis-ci.org/apache/incubator-superset.svg?branch=master)](https://travis-ci.org/apache/incubator-superset)
 [![PyPI version](https://badge.fury.io/py/superset.svg)](https://badge.fury.io/py/superset)
-[![Coverage Status](https://coveralls.io/repos/airbnb/superset/badge.svg?branch=master&service=github)](https://coveralls.io/github/airbnb/superset?branch=master)
-[![JS Test Coverage](https://codeclimate.com/github/airbnb/superset/badges/coverage.svg)](https://codeclimate.com/github/airbnb/superset/coverage)
-[![Code Health](https://landscape.io/github/airbnb/superset/master/landscape.svg?style=flat)](https://landscape.io/github/airbnb/superset/master)
-[![Code Climate](https://codeclimate.com/github/airbnb/superset/badges/gpa.svg)](https://codeclimate.com/github/airbnb/superset)
+[![Coverage Status](https://codecov.io/github/apache/incubator-superset/coverage.svg?branch=master)](https://codecov.io/github/apache/incubator-superset)
 [![PyPI](https://img.shields.io/pypi/pyversions/superset.svg?maxAge=2592000)](https://pypi.python.org/pypi/superset)
-[![Requirements Status](https://requires.io/github/airbnb/superset/requirements.svg?branch=master)](https://requires.io/github/airbnb/superset/requirements/?branch=master)
-[![Join the chat at https://gitter.im/airbnb/superset](https://badges.gitter.im/airbnb/superset.svg)](https://gitter.im/airbnb/superset?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
-[![Documentation](https://img.shields.io/badge/docs-airbnb.io-blue.svg)](http://airbnb.io/superset/)
-[![dependencies Status](https://david-dm.org/airbnb/superset/status.svg?path=superset/assets)](https://david-dm.org/airbnb/superset?path=superset/assets)
+[![Join the chat at https://gitter.im/airbnb/superset](https://badges.gitter.im/apache/incubator-superset.svg)](https://gitter.im/airbnb/superset?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
+[![Documentation](https://img.shields.io/badge/docs-apache.org-blue.svg)](https://superset.incubator.apache.org)
+[![dependencies Status](https://david-dm.org/apache/incubator-superset/status.svg?path=superset/assets)](https://david-dm.org/apache/incubator-superset?path=superset/assets)
 
 <img
   src="https://cloud.githubusercontent.com/assets/130878/20946612/49a8a25c-bbc0-11e6-8314-10bef902af51.png"
@@ -127,7 +123,64 @@ power analytic dashboards and applications.*
 Installation & Configuration
 ----------------------------
 
-[See in the documentation](http://airbnb.io/superset/installation.html)
+[See in the documentation](https://superset.incubator.apache.org/installation.html)
+
+
+Resources
+-------------
+* [Mailing list](https://lists.apache.org/list.html?dev@superset.apache.org/)
+* [Gitter (live chat) Channel](https://gitter.im/airbnb/superset)
+* [Docker image](https://hub.docker.com/r/amancevice/superset/) (community contributed)
+* [Slides from Strata (March 2016)](https://drive.google.com/open?id=0B5PVE0gzO81oOVJkdF9aNkJMSmM)
+* [Stackoverflow tag](https://stackoverflow.com/questions/tagged/apache-superset)
+* [DEPRECATED Google Group](https://groups.google.com/forum/#!forum/airbnb_superset)
+
+
+Contributing
+------------
+
+Interested in contributing? Casual hacking? Check out
+[Contributing.MD](https://github.com/airbnb/superset/blob/master/CONTRIBUTING.md)
+
+
+Who uses Apache Superset (incubating)?
+--------------------------------------
+
+Here's a list of organizations who have taken the time to send a PR to let
+the world know they are using Superset. Join our growing community!
+
+ - [AiHello](https://www.aihello.com)
+ - [Airbnb](https://github.com/airbnb)
+ - [Aktia Bank plc](https://www.aktia.com)
+ - [Amino](https://amino.com)
+ - [Brilliant.org](https://brilliant.org/)
+ - [Capital Service S.A.](http://capitalservice.pl)
+ - [Clark.de](http://clark.de/)
+ - [Digit Game Studios](https://www.digitgaming.com/)
+ - [Douban](https://www.douban.com/)
+ - [Endress+Hauser](http://www.endress.com/)
+ - [FBK - ICT center](http://ict.fbk.eu)
+ - [Faasos](http://faasos.com/)
+ - [GfK Data Lab](http://datalab.gfk.com)
+ - [Konfío](http://konfio.mx)
+ - [Lyft](https://www.lyft.com/)
+ - [Maieutical Labs](https://cloudschooling.it)
+ - [PeopleDoc](https://www.people-doc.com)
+ - [Ona](https://ona.io)
+ - [Pronto Tools](http://www.prontotools.io)
+ - [Qunar](https://www.qunar.com/)
+ - [ScopeAI](https://www.getscopeai.com)
+ - [Shopee](https://shopee.sg)
+ - [Shopkick](https://www.shopkick.com)
+ - [Tails.com](https://tails.com)
+ - [Tobii](http://www.tobii.com/)
+ - [Tooploox](https://www.tooploox.com/)
+ - [Twitter](https://twitter.com/)
+ - [Udemy](https://www.udemy.com/)
+ - [VIPKID](https://www.vipkid.com.cn/)
+ - [Yahoo!](https://yahoo.com/)
+ - [Zaihang](http://www.zaih.com/)
+ - [Zalando](https://www.zalando.com)
 
 
 More screenshots
@@ -148,43 +201,3 @@ More screenshots
 ![superset-sql-lab-2](https://cloud.githubusercontent.com/assets/130878/20234713/0f67b856-a835-11e6-9d50-7a52168f66fd.png)
 
 ![superset-sql-lab](https://cloud.githubusercontent.com/assets/130878/20234714/0f68f45a-a835-11e6-9467-f47ad0af7e79.png)
-
-
-Resources
--------------
-* [Superset Google Group](https://groups.google.com/forum/#!forum/airbnb_superset)
-* [Gitter (live chat) Channel](https://gitter.im/airbnb/superset)
-* [Docker image](https://hub.docker.com/r/amancevice/superset/) (community contributed)
-* [Slides from Strata (March 2016)](https://drive.google.com/open?id=0B5PVE0gzO81oOVJkdF9aNkJMSmM)
-
-
-Contributing
-------------
-
-Interested in contributing? Casual hacking? Check out
-[Contributing.MD](https://github.com/airbnb/superset/blob/master/CONTRIBUTING.md)
-
-
-Who uses Apache Superset (incubating)?
---------------------------------------
-
-Here's a list of organizations who have taken the time to send a PR to let
-the world know they are using Superset. Join our growing community!
-
- - [Airbnb](https://github.com/airbnb)
- - [Amino](https://amino.com)
- - [Brilliant.org](https://brilliant.org/)
- - [Clark.de](http://clark.de/)
- - [Digit Game Studios](https://www.digitgaming.com/)
- - [Endress+Hauser](http://www.endress.com/)
- - [FBK - ICT center](http://ict.fbk.eu)
- - [Faasos](http://faasos.com/)
- - [GfK Data Lab](http://datalab.gfk.com)
- - [Maieutical Labs](https://cloudschooling.it)
- - [Qunar](https://www.qunar.com/)
- - [Shopkick](https://www.shopkick.com)
- - [Tails.com](https://tails.com)
- - [Tobii](http://www.tobii.com/)
- - [Tooploox](https://www.tooploox.com/)
- - [Udemy](https://www.udemy.com/)
- - [Yahoo!](www.yahoo.com)

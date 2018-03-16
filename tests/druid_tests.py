@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """Unit tests for Superset"""
 from __future__ import absolute_import
 from __future__ import division
@@ -10,57 +11,62 @@ import unittest
 
 from mock import Mock, patch
 
-from superset import db, sm, security
-from superset.connectors.druid.models import DruidCluster, DruidDatasource
-from superset.connectors.druid.models import PyDruid
-
+from superset import db, security, sm
+from superset.connectors.druid.models import (
+    DruidCluster, DruidDatasource,
+)
 from .base_tests import SupersetTestCase
 
 
+class PickableMock(Mock):
+    def __reduce__(self):
+        return (Mock, ())
+
+
 SEGMENT_METADATA = [{
-  "id": "some_id",
-  "intervals": ["2013-05-13T00:00:00.000Z/2013-05-14T00:00:00.000Z"],
-  "columns": {
-    "__time": {
-        "type": "LONG", "hasMultipleValues": False,
-        "size": 407240380, "cardinality": None, "errorMessage": None},
-    "dim1": {
-        "type": "STRING", "hasMultipleValues": False,
-        "size": 100000, "cardinality": 1944, "errorMessage": None},
-    "dim2": {
-        "type": "STRING", "hasMultipleValues": True,
-        "size": 100000, "cardinality": 1504, "errorMessage": None},
-    "metric1": {
-        "type": "FLOAT", "hasMultipleValues": False,
-        "size": 100000, "cardinality": None, "errorMessage": None}
-  },
-  "aggregators": {
-    "metric1": {
-        "type": "longSum",
-        "name": "metric1",
-        "fieldName": "metric1"}
-  },
-  "size": 300000,
-  "numRows": 5000000
+    'id': 'some_id',
+    'intervals': ['2013-05-13T00:00:00.000Z/2013-05-14T00:00:00.000Z'],
+    'columns': {
+        '__time': {
+            'type': 'LONG', 'hasMultipleValues': False,
+            'size': 407240380, 'cardinality': None, 'errorMessage': None},
+        'dim1': {
+            'type': 'STRING', 'hasMultipleValues': False,
+            'size': 100000, 'cardinality': 1944, 'errorMessage': None},
+        'dim2': {
+            'type': 'STRING', 'hasMultipleValues': True,
+            'size': 100000, 'cardinality': 1504, 'errorMessage': None},
+        'metric1': {
+            'type': 'FLOAT', 'hasMultipleValues': False,
+            'size': 100000, 'cardinality': None, 'errorMessage': None},
+    },
+    'aggregators': {
+        'metric1': {
+            'type': 'longSum',
+            'name': 'metric1',
+            'fieldName': 'metric1'},
+    },
+    'size': 300000,
+    'numRows': 5000000,
 }]
 
 GB_RESULT_SET = [
-  {
-    "version": "v1",
-    "timestamp": "2012-01-01T00:00:00.000Z",
-    "event": {
-      "dim1": 'Canada',
-      "metric1": 12345678,
-    }
-  },
-  {
-    "version": "v1",
-    "timestamp": "2012-01-01T00:00:00.000Z",
-    "event": {
-      "dim1": 'USA',
-      "metric1": 12345678 / 2,
-    }
-  },
+    {
+        'version': 'v1',
+        'timestamp': '2012-01-01T00:00:00.000Z',
+        'event': {
+            'dim1': 'Canada',
+            'metric1': 12345678,
+        },
+    },
+    {
+        'version': 'v1',
+        'timestamp': '2012-01-01T00:00:00.000Z',
+        'event': {
+            'dim1': 'USA',
+            'metric1': 12345678 / 2,
+        },
+    },
 ]
 
 
@@ -70,6 +76,16 @@ class DruidTests(SupersetTestCase):
 
     def __init__(self, *args, **kwargs):
         super(DruidTests, self).__init__(*args, **kwargs)
+
+    def get_test_cluster_obj(self):
+        return DruidCluster(
+            cluster_name='test_cluster',
+            coordinator_host='localhost',
+            coordinator_endpoint='druid/coordinator/v1/metadata',
+            coordinator_port=7979,
+            broker_host='localhost',
+            broker_port=7980,
+            metadata_last_refreshed=datetime.now())
 
     @patch('superset.connectors.druid.models.PyDruid')
     def test_client(self, PyDruid):
@@ -89,17 +105,11 @@ class DruidTests(SupersetTestCase):
             db.session.delete(cluster)
         db.session.commit()
 
-        cluster = DruidCluster(
-            cluster_name='test_cluster',
-            coordinator_host='localhost',
-            coordinator_port=7979,
-            broker_host='localhost',
-            broker_port=7980,
-            metadata_last_refreshed=datetime.now())
+        cluster = self.get_test_cluster_obj()
 
         db.session.add(cluster)
-        cluster.get_datasources = Mock(return_value=['test_datasource'])
-        cluster.get_druid_version = Mock(return_value='0.9.1')
+        cluster.get_datasources = PickableMock(return_value=['test_datasource'])
+        cluster.get_druid_version = PickableMock(return_value='0.9.1')
         cluster.refresh_datasources()
         cluster.refresh_datasources(merge_flag=True)
         datasource_id = cluster.datasources[0].id
@@ -117,7 +127,7 @@ class DruidTests(SupersetTestCase):
 
         resp = self.get_resp('/superset/explore/druid/{}/'.format(
             datasource_id))
-        self.assertIn("test_datasource", resp)
+        self.assertIn('test_datasource', resp)
         form_data = {
             'viz_type': 'table',
             'granularity': 'one+day',
@@ -131,12 +141,9 @@ class DruidTests(SupersetTestCase):
             'force': 'true',
         }
         # One groupby
-        url = (
-            '/superset/explore_json/druid/{}/?form_data={}'.format(
-                datasource_id, json.dumps(form_data))
-        )
-        resp = self.get_json_resp(url)
-        self.assertEqual("Canada", resp['data']['records'][0]['dim1'])
+        url = ('/superset/explore_json/druid/{}/'.format(datasource_id))
+        resp = self.get_json_resp(url, {'form_data': json.dumps(form_data)})
+        self.assertEqual('Canada', resp['data']['records'][0]['dim1'])
 
         form_data = {
             'viz_type': 'table',
@@ -151,12 +158,9 @@ class DruidTests(SupersetTestCase):
             'force': 'true',
         }
         # two groupby
-        url = (
-            '/superset/explore_json/druid/{}/?form_data={}'.format(
-                datasource_id, json.dumps(form_data))
-        )
-        resp = self.get_json_resp(url)
-        self.assertEqual("Canada", resp['data']['records'][0]['dim1'])
+        url = ('/superset/explore_json/druid/{}/'.format(datasource_id))
+        resp = self.get_json_resp(url, {'form_data': json.dumps(form_data)})
+        self.assertEqual('Canada', resp['data']['records'][0]['dim1'])
 
     def test_druid_sync_from_config(self):
         CLUSTER_NAME = 'new_druid'
@@ -179,35 +183,36 @@ class DruidTests(SupersetTestCase):
         db.session.commit()
 
         cfg = {
-            "user": "admin",
-            "cluster": CLUSTER_NAME,
-            "config": {
-                "name": "test_click",
-                "dimensions": ["affiliate_id", "campaign", "first_seen"],
-                "metrics_spec": [{"type": "count", "name": "count"},
-                                 {"type": "sum", "name": "sum"}],
-                "batch_ingestion": {
-                    "sql": "SELECT * FROM clicks WHERE d='{{ ds }}'",
-                    "ts_column": "d",
-                    "sources": [{
-                        "table": "clicks",
-                        "partition": "d='{{ ds }}'"
-                    }]
-                }
-            }
+            'user': 'admin',
+            'cluster': CLUSTER_NAME,
+            'config': {
+                'name': 'test_click',
+                'dimensions': ['affiliate_id', 'campaign', 'first_seen'],
+                'metrics_spec': [{'type': 'count', 'name': 'count'},
+                                 {'type': 'sum', 'name': 'sum'}],
+                'batch_ingestion': {
+                    'sql': "SELECT * FROM clicks WHERE d='{{ ds }}'",
+                    'ts_column': 'd',
+                    'sources': [{
+                        'table': 'clicks',
+                        'partition': "d='{{ ds }}'",
+                    }],
+                },
+            },
         }
+
         def check():
             resp = self.client.post('/superset/sync_druid/', data=json.dumps(cfg))
             druid_ds = (
                 db.session
                 .query(DruidDatasource)
-                .filter_by(datasource_name="test_click")
+                .filter_by(datasource_name='test_click')
                 .one()
             )
             col_names = set([c.column_name for c in druid_ds.columns])
-            assert {"affiliate_id", "campaign", "first_seen"} == col_names
+            assert {'affiliate_id', 'campaign', 'first_seen'} == col_names
             metric_names = {m.metric_name for m in druid_ds.metrics}
-            assert {"count", "sum"} == metric_names
+            assert {'count', 'sum'} == metric_names
             assert resp.status_code == 201
 
         check()
@@ -216,29 +221,29 @@ class DruidTests(SupersetTestCase):
 
         # datasource exists, add new metrics and dimensions
         cfg = {
-            "user": "admin",
-            "cluster": CLUSTER_NAME,
-            "config": {
-                "name": "test_click",
-                "dimensions": ["affiliate_id", "second_seen"],
-                "metrics_spec": [
-                    {"type": "bla", "name": "sum"},
-                    {"type": "unique", "name": "unique"}
+            'user': 'admin',
+            'cluster': CLUSTER_NAME,
+            'config': {
+                'name': 'test_click',
+                'dimensions': ['affiliate_id', 'second_seen'],
+                'metrics_spec': [
+                    {'type': 'bla', 'name': 'sum'},
+                    {'type': 'unique', 'name': 'unique'},
                 ],
-            }
+            },
         }
         resp = self.client.post('/superset/sync_druid/', data=json.dumps(cfg))
         druid_ds = db.session.query(DruidDatasource).filter_by(
-            datasource_name="test_click").one()
+            datasource_name='test_click').one()
         # columns and metrics are not deleted if config is changed as
         # user could define his own dimensions / metrics and want to keep them
         assert set([c.column_name for c in druid_ds.columns]) == set(
-            ["affiliate_id", "campaign", "first_seen", "second_seen"])
+            ['affiliate_id', 'campaign', 'first_seen', 'second_seen'])
         assert set([m.metric_name for m in druid_ds.metrics]) == set(
-            ["count", "sum", "unique"])
+            ['count', 'sum', 'unique'])
         # metric type will not be overridden, sum stays instead of bla
         assert set([m.metric_type for m in druid_ds.metrics]) == set(
-            ["longSum", "sum", "unique"])
+            ['longSum', 'sum', 'unique'])
         assert resp.status_code == 201
 
     def test_filter_druid_datasource(self):
@@ -303,21 +308,39 @@ class DruidTests(SupersetTestCase):
             metadata_last_refreshed=datetime.now())
 
         db.session.add(cluster)
-        cluster.get_datasources = Mock(return_value=['test_datasource'])
-        cluster.get_druid_version = Mock(return_value='0.9.1')
+        cluster.get_datasources = PickableMock(
+            return_value=['test_datasource'],
+        )
+        cluster.get_druid_version = PickableMock(return_value='0.9.1')
 
         cluster.refresh_datasources()
-        datasource_id = cluster.datasources[0].id
+        cluster.datasources[0].merge_flag = True
+        metadata = cluster.datasources[0].latest_metadata()
+        self.assertEqual(len(metadata), 4)
         db.session.commit()
 
         view_menu_name = cluster.datasources[0].get_perm()
         view_menu = sm.find_view_menu(view_menu_name)
-        permission = sm.find_permission("datasource_access")
+        permission = sm.find_permission('datasource_access')
 
         pv = sm.get_session.query(sm.permissionview_model).filter_by(
             permission=permission, view_menu=view_menu).first()
         assert pv is not None
 
+    def test_urls(self):
+        cluster = self.get_test_cluster_obj()
+        self.assertEquals(
+            cluster.get_base_url('localhost', '9999'), 'http://localhost:9999')
+        self.assertEquals(
+            cluster.get_base_url('http://localhost', '9999'),
+            'http://localhost:9999')
+        self.assertEquals(
+            cluster.get_base_url('https://localhost', '9999'),
+            'https://localhost:9999')
+
+        self.assertEquals(
+            cluster.get_base_coordinator_url(),
+            'http://localhost:7979/druid/coordinator/v1/metadata')
 
 
 if __name__ == '__main__':

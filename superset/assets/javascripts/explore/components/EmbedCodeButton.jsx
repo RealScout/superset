@@ -2,9 +2,11 @@ import React from 'react';
 import PropTypes from 'prop-types';
 import { Popover, OverlayTrigger } from 'react-bootstrap';
 import CopyToClipboard from './../../components/CopyToClipboard';
+import { getExploreLongUrl } from '../exploreUtils';
+import { t } from '../../locales';
 
 const propTypes = {
-  slice: PropTypes.object.isRequired,
+  latestQueryFormData: PropTypes.object.isRequired,
 };
 
 export default class EmbedCodeButton extends React.Component {
@@ -28,7 +30,7 @@ export default class EmbedCodeButton extends React.Component {
   generateEmbedHTML() {
     const srcLink = (
       window.location.origin +
-      this.props.slice.data.standalone_endpoint +
+      getExploreLongUrl(this.props.latestQueryFormData, 'standalone') +
       `&height=${this.state.height}`
     );
     return (
@@ -63,7 +65,7 @@ export default class EmbedCodeButton extends React.Component {
               <CopyToClipboard
                 shouldShowText={false}
                 text={html}
-                copyNode={<i className="fa fa-clipboard" title="Copy to clipboard" />}
+                copyNode={<i className="fa fa-clipboard" title={t('Copy to clipboard')} />}
               />
             </div>
           </div>
@@ -72,7 +74,7 @@ export default class EmbedCodeButton extends React.Component {
             <div className="col-md-6 col-sm-12">
               <div className="form-group">
                 <small>
-                  <label className="control-label" htmlFor="embed-height">Height</label>
+                  <label className="control-label" htmlFor="embed-height">{t('Height')}</label>
                 </small>
                 <input
                   className="form-control input-sm"
@@ -86,7 +88,7 @@ export default class EmbedCodeButton extends React.Component {
             <div className="col-md-6 col-sm-12">
               <div className="form-group">
                 <small>
-                  <label className="control-label" htmlFor="embed-width">Width</label>
+                  <label className="control-label" htmlFor="embed-width">{t('Width')}</label>
                 </small>
                 <input
                   className="form-control input-sm"
