@@ -1,27 +1,4 @@
-{#
-  Licensed to the Apache Software Foundation (ASF) under one
-  or more contributor license agreements.  See the NOTICE file
-  distributed with this work for additional information
-  regarding copyright ownership.  The ASF licenses this file
-  to you under the Apache License, Version 2.0 (the
-  "License"); you may not use this file except in compliance
-  with the License.  You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-  Unless required by applicable law or agreed to in writing,
-  software distributed under the License is distributed on an
-  "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
-  KIND, either express or implied.  See the License for the
-  specific language governing permissions and limitations
-  under the License.
-#}
-
-<!DOCTYPE html>
 {% import 'appbuilder/general/lib.html' as lib %}
-{% from 'superset/partials/asset_bundle.html' import css_bundle, js_bundle with context %}
-
-{% set favicons = appbuilder.app.config['FAVICONS'] %}
 <html>
   <head>
     <title>
@@ -35,27 +12,17 @@
     </title>
     {% block head_meta %}{% endblock %}
     {% block head_css %}
-      {% for favicon in favicons %}
-        <link
-          rel="{{favicon.rel if favicon.rel else "icon"}}"
-          type="{{favicon.type if favicon.type else "image/png"}}"
-          {% if favicon.sizes %}sizes={{favicon.sizes}}{% endif %}
-          href="{{favicon.href}}"
-        >
-      {% endfor %}
+      <link rel="icon" type="image/png" href="/static/assets/images/favicon.png">
       <link rel="stylesheet" type="text/css" href="/static/appbuilder/css/flags/flags16.css" />
+      <link rel="stylesheet" type="text/css" href="{{ js_manifest('theme.css') }}" />
       <link rel="stylesheet" type="text/css" href="/static/appbuilder/css/font-awesome.min.css">
-
-      {{ css_bundle("theme") }}
-
       {% if entry %}
-        {{ css_bundle(entry) }}
+        <link rel="stylesheet" type="text/css" href="{{ js_manifest(entry + '.css') }}" />
       {% endif %}
-
     {% endblock %}
-
-    {{ js_bundle("theme") }}
-
+    {% block head_js %}
+      <script src="{{ js_manifest('common.js') }}"></script>
+    {% endblock %}
     <input
       type="hidden"
       name="csrf_token"
@@ -64,16 +31,18 @@
     >
   </head>
 
-  <body {% if standalone_mode %}class="standalone"{% endif %}>
+  <body>
     {% block navbar %}
       {% if not standalone_mode %}
-        {% include 'appbuilder/navbar.html' %}
+        <header class="top" role="header">
+          {% include 'appbuilder/navbar.html' %}
+        </header>
       {% endif %}
     {% endblock %}
 
     {% block body %}
-      <div id="app" data-bootstrap="{{ bootstrap_data }}">
-        <img src="/static/assets/images/loading.gif" style="width: 50px; position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%)">
+      <div id="app" data-bootstrap="{{ bootstrap_data }}" >
+        <img src="/static/assets/images/loading.gif" style="width: 50px; margin: 10px;">
       </div>
     {% endblock %}
 
@@ -95,11 +64,9 @@
         </div>
       </div>
     </div>
-
     {% block tail_js %}
-      {{ js_bundle('menu') }}
       {% if entry %}
-        {{ js_bundle(entry) }}
+        <script src="{{ js_manifest(entry + '.js') }}"></script>
       {% endif %}
     {% endblock %}
   </body>
